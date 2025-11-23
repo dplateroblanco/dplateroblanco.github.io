@@ -1,0 +1,107 @@
+:root
+{
+    --body-background-color: #fff8f1;
+    --body-text-color: #000
+    
+}
+
+.Encadre
+{
+    --main-bg-color: #e6caab;
+    background-color: var(--main-bg-color);
+
+}
+
+@media(prefers-color-scheme: dark) /* Mode Sombre*/
+{
+    :root
+    {
+    --body-background-color: #0e2148;
+    --body-text-color: #eee 
+
+    }
+    .Encadre
+    {
+        --main-bg-color: #483aa0 ;
+    }
+}
+
+html 
+{
+    background-color: var(--body-background-color)
+}
+
+body 
+{
+    color: var(--body-text-color);
+    background-color: var(--body-background-color);
+} 
+
+button
+{
+    position: absolute;
+    right: 10px;
+    color: var(--body-text-color);
+    background-color: var(--main-bg-color);
+}
+
+a {
+    color: var(--body-text-color)
+}
+
+section
+{
+    text-align: center;
+}
+
+caption
+{
+    font-size: large;
+    font-weight: bold;
+
+}
+
+table
+{
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.MonCV
+{
+    border: 0px, var(--body-text-color), solid;    
+}
+
+.Cadre
+{
+    border: 1px solid black; 
+    padding: 10px; 
+    width: 650px;
+}
+
+footer
+{
+    text-align: center;
+    padding: 50px 0px 0px 0px;
+}
+
+.PiedDePage
+{
+    table-layout: auto;
+    border: 1px var(--body-text-color) solid;
+
+}
+
+.TableauCentré
+{
+    table-layout: fixed;
+    border: 1px var(--body-text-color) solid;
+    text-align: center;
+    padding: 200px;
+}
+
+.TitreVoiture
+{
+    color: var(--body-background-color);
+    opacity: 0.0;
+} 
