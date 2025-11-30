@@ -12,6 +12,10 @@
 
 }
 
+details
+{
+    position: relative;
+}
 @media(prefers-color-scheme: dark) /* Mode Sombre*/
 {
     :root
@@ -104,4 +108,4 @@ footer
 {
     color: var(--body-background-color);
     opacity: 0.0;
-} 
+}
