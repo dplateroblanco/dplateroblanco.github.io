@@ -108,4 +108,26 @@ footer
 {
     color: var(--body-background-color);
     opacity: 0.0;
+    text-align: center;
 }
+
+.Portfolio 
+{
+    width: 80%;         /* largeur fixe maximale */
+    max-width: 200px;   /* s'adapte aux écrans plus petits */
+    margin: 0 auto;     /* centre horizontalement */
+}
+
+.Portfolio td
+{
+    vertical-align: top;
+    padding: 10px;
+}
+
+.Portfolio img
+{
+    width: 405px;
+    height: auto;
+    vertical-align: top;
+}
+
