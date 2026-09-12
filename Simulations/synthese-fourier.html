@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Synthèse de Fourier — reconstruction d'un signal périodique</title>
+<style>
+:root{
+  --page:#e7ecef;
+  --panel:#ffffff;
+  --ink:#122733;
+  --ink-soft:#4d6472;
+  --rule:#c8d4dc;
+  --grid:#e2e9ee;
+  --blue:#12489e;      /* somme partielle, domaine temporel */
+  --teal:#0d6b63;      /* spectre d'amplitude */
+  --plum:#8a3b5e;      /* spectre de phase */
+  --target:#8fa0ad;    /* signal visé */
+  --off:#ccd6dd;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--page);
+  color:var(--ink);
+  font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  padding:20px 20px 40px;
+}
+.wrap{max-width:1180px;margin:0 auto}
+
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:16px;margin-bottom:16px}
+h1{
+  font-family:Charter,"Bitstream Charter",Cambria,Georgia,serif;
+  font-size:27px;font-weight:600;margin:0;letter-spacing:-.01em;
+}
+header p{margin:0;color:var(--ink-soft);font-size:14.5px;max-width:60ch}
+
+.panel{background:var(--panel);border:1px solid var(--rule);padding:14px 16px}
+.panel + .panel{margin-top:12px}
+
+/* ---- barre de commandes ---- */
+.controls{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-end}
+.field{display:flex;flex-direction:column;gap:6px}
+.field > span{font-size:12.5px;color:var(--ink-soft)}
+.seg{display:flex;border:1px solid var(--rule);overflow:hidden}
+.seg button{
+  font:inherit;font-size:14px;background:var(--panel);color:var(--ink);
+  border:0;border-right:1px solid var(--rule);padding:7px 13px;cursor:pointer;
+}
+.seg button:last-child{border-right:0}
+.seg button:hover{background:#f0f4f6}
+.seg button[aria-pressed="true"]{background:var(--ink);color:#fff}
+.seg button:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+
+input[type=range]{width:230px;accent-color:var(--blue)}
+.rank{display:flex;align-items:center;gap:12px}
+.rank output{
+  font-family:Charter,"Bitstream Charter",Cambria,Georgia,serif;
+  font-size:24px;min-width:2.2em;text-align:right;font-variant-numeric:tabular-nums;
+}
+.btn{
+  font:inherit;font-size:14px;padding:7px 13px;cursor:pointer;
+  background:var(--panel);border:1px solid var(--rule);color:var(--ink);
+}
+.btn:hover{background:#f0f4f6}
+.btn:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.primary:hover{background:#0d3a80}
+.checks{display:flex;flex-direction:column;gap:5px;font-size:14px}
+.checks label{display:flex;gap:7px;align-items:center;cursor:pointer}
+
+/* ---- indicateurs ---- */
+.stats{display:flex;gap:0;margin-top:14px;border-top:1px solid var(--rule);padding-top:12px}
+.stat{padding:0 22px;border-left:1px solid var(--rule)}
+.stat:first-child{padding-left:0;border-left:0}
+.stat b{
+  display:block;font-family:Charter,"Bitstream Charter",Cambria,Georgia,serif;
+  font-size:21px;font-weight:600;font-variant-numeric:tabular-nums;
+}
+.stat span{font-size:12.5px;color:var(--ink-soft)}
+
+/* ---- graphiques ---- */
+.cwrap{position:relative}
+canvas{display:block;width:100%}
+#cTime{height:330px}
+.spectra{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.spectra canvas{height:260px}
+.head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px}
+.head h2{
+  font-family:Charter,"Bitstream Charter",Cambria,Georgia,serif;
+  font-size:17px;margin:0;font-weight:600;
+}
+.head .key{width:11px;height:11px;display:inline-block;margin-right:7px;vertical-align:baseline}
+.hint{font-size:12.5px;color:var(--ink-soft);margin:8px 0 0}
+
+.tip{
+  position:absolute;pointer-events:none;background:var(--ink);color:#fff;
+  font-size:12.5px;line-height:1.45;padding:6px 9px;white-space:nowrap;
+  opacity:0;transition:opacity .1s;z-index:5;
+}
+.tip.on{opacity:1}
+
+.series{
+  margin-top:12px;border-top:1px solid var(--rule);padding-top:11px;
+  font-family:Charter,"Bitstream Charter",Cambria,Georgia,serif;
+  font-size:16.5px;
+}
+.series em{font-style:normal;color:var(--ink-soft);font-size:13.5px;display:block;
+  font-family:system-ui,sans-serif;margin-top:5px}
+
+footer{margin-top:14px;font-size:12.5px;color:var(--ink-soft)}
+@media (max-width:860px){
+  .spectra{grid-template-columns:1fr}
+  input[type=range]{width:170px}
+}
+@media (prefers-reduced-motion:reduce){.tip{transition:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Synthèse de Fourier</h1>
+  <p>Ajoutez les harmoniques une à une et regardez la somme partielle rejoindre le signal visé. Cliquez sur une raie du spectre pour retirer ou remettre l'harmonique correspondante.</p>
+</header>
+
+<div class="panel">
+  <div class="controls">
+    <div class="field">
+      <span>Signal visé</span>
+      <div class="seg" id="segSignal">
+        <button data-sig="carre" aria-pressed="true">Carré</button>
+        <button data-sig="triangle" aria-pressed="false">Triangle</button>
+        <button data-sig="scie" aria-pressed="false">Dents de scie</button>
+        <button data-sig="creneau" aria-pressed="false">Créneau (α)</button>
+        <button data-sig="redresse" aria-pressed="false">Redressé</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <span>Rang maximal retenu</span>
+      <div class="rank">
+        <input type="range" id="rN" min="0" max="40" step="1" value="5" aria-label="Rang maximal retenu">
+        <output id="oN">5</output>
+      </div>
+    </div>
+
+    <div class="field" id="fAlpha" hidden>
+      <span>Rapport cyclique α</span>
+      <div class="rank">
+        <input type="range" id="rA" min="0.05" max="0.95" step="0.01" value="0.25" aria-label="Rapport cyclique">
+        <output id="oA">0,25</output>
+      </div>
+    </div>
+
+    <div class="field">
+      <span>Animation</span>
+      <div style="display:flex;gap:8px">
+        <button class="btn primary" id="bPlay">Ajouter une à une</button>
+        <button class="btn" id="bReset">Tout rétablir</button>
+      </div>
+    </div>
+
+    <div class="field checks">
+      <label><input type="checkbox" id="kTarget" checked> Signal visé</label>
+      <label><input type="checkbox" id="kHarm"> Harmoniques séparées</label>
+      <label><input type="checkbox" id="kGibbs"> Repère ±1</label>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b id="sCount">5</b><span>termes sommés</span></div>
+    <div class="stat"><b id="sErr">—</b><span>écart efficace au signal visé</span></div>
+    <div class="stat"><b id="sPow">—</b><span>puissance moyenne restituée</span></div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="head">
+    <h2><span class="key" style="background:var(--blue)"></span>Reconstruction dans le temps</h2>
+    <button class="btn" id="bPng">Enregistrer le graphe (PNG)</button>
+  </div>
+  <div class="cwrap"><canvas id="cTime"></canvas></div>
+  <div class="series" id="series"></div>
+</div>
+
+<div class="spectra">
+  <div class="panel">
+    <div class="head">
+      <h2><span class="key" style="background:var(--teal)"></span>Spectre d'amplitude</h2>
+      <div class="seg" id="segScale">
+        <button data-scale="lin" aria-pressed="true">Linéaire</button>
+        <button data-scale="db" aria-pressed="false">dB</button>
+      </div>
+    </div>
+    <div class="cwrap"><canvas id="cAmp"></canvas><div class="tip" id="tipA"></div></div>
+    <p class="hint" id="hintA">Référence 0 dB : la raie la plus forte du spectre. Plancher à −60 dB.</p>
+  </div>
+
+  <div class="panel">
+    <div class="head">
+      <h2><span class="key" style="background:var(--plum)"></span>Spectre de phase</h2>
+    </div>
+    <div class="cwrap"><canvas id="cPha"></canvas><div class="tip" id="tipP"></div></div>
+    <p class="hint">Phase φ<sub>n</sub> de la décomposition s(t) = A<sub>0</sub> + Σ A<sub>n</sub> cos(nωt + φ<sub>n</sub>), non définie pour les raies d'amplitude nulle.</p>
+  </div>
+</div>
+
+<footer>Flèches ← → : changer le rang maximal. Barre d'espace : lancer ou arrêter l'animation.</footer>
+</div>
+
+<script>
+"use strict";
+const TAU = 2*Math.PI, PI = Math.PI;
+const NMAX = 40;
+
+/* ------------------------------------------------------------------ */
+/*  Signaux : convention s(t) = A0 + Σ An cos(nωt + φn), An ≥ 0        */
+/* ------------------------------------------------------------------ */
+function wrap(p){
+  let x = ((p + PI) % TAU + TAU) % TAU - PI;
+  if (x <= -PI + 1e-9) x = PI;
+  return x;
+}
+
+const SIGNALS = {
+  carre: {
+    label:"Carré",
+    dc: () => 0,
+    coef: n => (n % 2 === 1) ? [4/(PI*n), -PI/2] : [0, 0],
+    f: u => (u < 0.5 ? 1 : -1),
+    yr: [-1.45, 1.45],
+    series: "s(t) = (4/π) [ sin ωt + ⅓ sin 3ωt + ⅕ sin 5ωt + … ]",
+    note: "Harmoniques impaires seulement, décroissance en 1/n, toutes en phase −π/2 : les discontinuités imposent une convergence lente et le rebond de Gibbs (≈ 9 % de la marche) subsiste quel que soit le rang."
+  },
+  triangle: {
+    label:"Triangle symétrique",
+    dc: () => 0,
+    coef: n => (n % 2 === 1) ? [8/(PI*PI*n*n), (((n-1)/2) % 2 === 0 ? -PI/2 : PI/2)] : [0, 0],
+    f: u => (u < 0.25 ? 4*u : (u < 0.75 ? 2 - 4*u : 4*u - 4)),
+    yr: [-1.45, 1.45],
+    series: "s(t) = (8/π²) [ sin ωt − (1/9) sin 3ωt + (1/25) sin 5ωt − … ]",
+    note: "Mêmes rangs que le carré, mais décroissance en 1/n² et alternance de phase ±π/2 : le signal est continu, trois harmoniques suffisent déjà à l'œil."
+  },
+  scie: {
+    label:"Dents de scie",
+    dc: () => 0,
+    coef: n => [2/(PI*n), (n % 2 === 1 ? -PI/2 : PI/2)],
+    f: u => (u < 0.5 ? 2*u : 2*u - 2),
+    yr: [-1.45, 1.45],
+    series: "s(t) = (2/π) [ sin ωt − ½ sin 2ωt + ⅓ sin 3ωt − … ]",
+    note: "Tous les rangs sont présents, en 1/n : la parité du rang fixe la phase (−π/2 ou +π/2). Retirer les rangs pairs redonne un carré adouci — à essayer en cliquant."
+  },
+  creneau: {
+    label:"Créneau de rapport cyclique α",
+    dc: p => p.alpha,
+    coef: (n, p) => {
+      const s = Math.sin(PI*n*p.alpha);
+      const A = 2*Math.abs(s)/(PI*n);
+      return [A, wrap(-PI*n*p.alpha + (s < 0 ? PI : 0))];
+    },
+    f: (u, p) => (u < p.alpha ? 1 : 0),
+    yr: [-0.45, 1.45],
+    series: "s(t) = α + (2/π) Σ (sin nπα)/n · cos(nωt − nπα)",
+    note: "L'enveloppe du spectre est un sinus cardinal : les raies de rang multiple de 1/α s'annulent. Avec α = 0,5 une raie sur deux disparaît et l'on retrouve le carré (décalé de sa valeur moyenne)."
+  },
+  redresse: {
+    label:"Sinusoïde redressée double alternance",
+    dc: () => 2/PI,
+    coef: n => [4/(PI*(4*n*n - 1)), PI],
+    f: u => Math.abs(Math.sin(PI*u)),
+    yr: [-0.3, 1.35],
+    series: "s(t) = 2/π − (4/π) Σ cos(nωt)/(4n² − 1)",
+    note: "Valeur moyenne 2/π non nulle, toutes les harmoniques en phase π et décroissance en 1/n² : c'est le spectre à filtrer en sortie d'un pont redresseur."
+  }
+};
+
+/* ------------------------------------------------------------------ */
+const state = {
+  sig: "carre", N: 5, alpha: 0.25,
+  db: false, showTarget: true, showHarm: false, showGibbs: false,
+  off: new Set(), playing: false, timer: null
+};
+
+function coefs(){
+  const S = SIGNALS[state.sig], p = {alpha: state.alpha}, out = [];
+  out.push({n:0, A: Math.abs(S.dc(p)), phi: S.dc(p) < 0 ? PI : 0, on: !state.off.has(0)});
+  for (let n = 1; n <= NMAX; n++){
+    const [A, phi] = S.coef(n, p);
+    out.push({n, A, phi, on: !state.off.has(n)});
+  }
+  return out;
+}
+function target(u){
+  const S = SIGNALS[state.sig];
+  return S.f(((u % 1) + 1) % 1, {alpha: state.alpha});
+}
+function partial(u, C){
+  let y = 0;
+  if (C[0].on) y += C[0].A * Math.cos(C[0].phi);
+  for (let n = 1; n <= state.N; n++){
+    const c = C[n];
+    if (c.on && c.A > 0) y += c.A * Math.cos(TAU*n*u + c.phi);
+  }
+  return y;
+}
+
+/* ------------------------------------------------------------------ */
+function prep(cv){
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  cv.width = Math.max(1, Math.round(r.width*dpr));
+  cv.height = Math.max(1, Math.round(r.height*dpr));
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, r.width, r.height);
+  return {ctx, w: r.width, h: r.height};
+}
+const css = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+const fmt = (x, d) => x.toFixed(d).replace(".", ",");
+
+/* ---------------------- graphe temporel --------------------------- */
+function drawTime(){
+  const {ctx, w, h} = prep(document.getElementById("cTime"));
+  const M = {l: 52, r: 16, t: 14, b: 32};
+  const pw = w - M.l - M.r, ph = h - M.t - M.b;
+  const S = SIGNALS[state.sig], [y0, y1] = S.yr;
+  const X = u => M.l + pw*u/2, Y = v => M.t + ph*(y1 - v)/(y1 - y0);
+  const C = coefs();
+
+  ctx.strokeStyle = css("--grid"); ctx.lineWidth = 1;
+  ctx.fillStyle = css("--ink-soft"); ctx.font = "12px system-ui,sans-serif";
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  const xt = [[0,"0"],[0.5,"T/2"],[1,"T"],[1.5,"3T/2"],[2,"2T"]];
+  for (const [u, lab] of xt){
+    const x = Math.round(X(u)) + .5;
+    ctx.beginPath(); ctx.moveTo(x, M.t); ctx.lineTo(x, M.t+ph); ctx.stroke();
+    ctx.fillText(lab, X(u), M.t + ph + 7);
+  }
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (let v = Math.ceil(y0*2)/2; v <= y1 + 1e-9; v += 0.5){
+    const y = Math.round(Y(v)) + .5;
+    ctx.beginPath(); ctx.moveTo(M.l, y); ctx.lineTo(M.l+pw, y); ctx.stroke();
+    ctx.fillText(fmt(v, 1), M.l - 8, Y(v));
+  }
+  if (state.showGibbs){
+    ctx.save(); ctx.setLineDash([2,3]); ctx.strokeStyle = "#d08a2a";
+    for (const v of [-1, 1]){
+      if (v < y0 || v > y1) continue;
+      ctx.beginPath(); ctx.moveTo(M.l, Y(v)); ctx.lineTo(M.l+pw, Y(v)); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.strokeStyle = "#9aa8b2"; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(M.l, Math.round(Y(0))+.5); ctx.lineTo(M.l+pw, Math.round(Y(0))+.5); ctx.stroke();
+
+  const NP = 1500;
+  // harmoniques prises séparément
+  if (state.showHarm){
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(18,72,158,.28)";
+    for (let n = 1; n <= state.N; n++){
+      const c = C[n];
+      if (!c.on || c.A <= 1e-12) continue;
+      ctx.beginPath();
+      for (let i = 0; i <= NP; i++){
+        const u = 2*i/NP, v = c.A*Math.cos(TAU*n*u + c.phi);
+        i ? ctx.lineTo(X(u), Y(v)) : ctx.moveTo(X(u), Y(v));
+      }
+      ctx.stroke();
+    }
+    if (C[0].on && C[0].A > 1e-12){
+      const v = C[0].A*Math.cos(C[0].phi);
+      ctx.beginPath(); ctx.moveTo(M.l, Y(v)); ctx.lineTo(M.l+pw, Y(v)); ctx.stroke();
+    }
+  }
+  // signal visé
+  if (state.showTarget){
+    ctx.save();
+    ctx.strokeStyle = css("--target"); ctx.lineWidth = 2; ctx.setLineDash([6,4]);
+    ctx.beginPath();
+    let prevU = 0, prev = target(0), started = false;
+    for (let i = 0; i <= NP; i++){
+      const u = 2*i/NP, v = target(u);
+      if (started && Math.abs(v - prev) > 0.6 && u - prevU < 0.01) ctx.moveTo(X(u), Y(v));
+      else if (started) ctx.lineTo(X(u), Y(v));
+      else { ctx.moveTo(X(u), Y(v)); started = true; }
+      prev = v; prevU = u;
+    }
+    ctx.stroke(); ctx.restore();
+  }
+  // somme partielle
+  ctx.strokeStyle = css("--blue"); ctx.lineWidth = 2.4;
+  ctx.lineJoin = "round"; ctx.beginPath();
+  for (let i = 0; i <= NP; i++){
+    const u = 2*i/NP, v = partial(u, C);
+    i ? ctx.lineTo(X(u), Y(v)) : ctx.moveTo(X(u), Y(v));
+  }
+  ctx.stroke();
+
+  // légende
+  ctx.font = "12.5px system-ui,sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  let lx = M.l + 10, ly = M.t + 12;
+  if (state.showTarget){
+    ctx.save(); ctx.strokeStyle = css("--target"); ctx.lineWidth = 2; ctx.setLineDash([6,4]);
+    ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx+24, ly); ctx.stroke(); ctx.restore();
+    ctx.fillStyle = css("--ink-soft"); ctx.fillText("signal visé", lx+30, ly);
+    ly += 17;
+  }
+  ctx.strokeStyle = css("--blue"); ctx.lineWidth = 2.4;
+  ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx+24, ly); ctx.stroke();
+  ctx.fillStyle = css("--ink"); ctx.fillText("somme partielle", lx+30, ly);
+}
+
+/* ------------------- spectres (barres cliquables) ----------------- */
+let hitA = [], hitP = [];
+
+function slots(w, M){
+  const pw = w - M.l - M.r, k = state.N + 1;
+  return {pw, k, sw: pw/k, X: n => M.l + (n + 0.5)*(pw/k)};
+}
+function tickStep(k){ return k <= 12 ? 1 : (k <= 26 ? 2 : 5); }
+
+function drawAmp(){
+  const cv = document.getElementById("cAmp");
+  const {ctx, w, h} = prep(cv);
+  const M = {l: 52, r: 12, t: 12, b: 34};
+  const ph = h - M.t - M.b;
+  const {sw, X} = slots(w, M);
+  const C = coefs();
+  let amax = 0;
+  for (const c of C) if (c.n <= state.N) amax = Math.max(amax, c.A);
+  if (amax <= 0) amax = 1;
+  const FLOOR = -60;
+  const Yl = a => M.t + ph*(1 - a/(amax*1.08));
+  const Yd = a => {
+    const d = 20*Math.log10(a/amax);
+    return M.t + ph*(1 - (Math.max(d, FLOOR) - FLOOR)/(-FLOOR));
+  };
+  const Y = a => state.db ? Yd(a) : Yl(a);
+  const base = M.t + ph;
+
+  ctx.strokeStyle = css("--grid"); ctx.lineWidth = 1;
+  ctx.fillStyle = css("--ink-soft"); ctx.font = "12px system-ui,sans-serif";
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  if (state.db){
+    for (let d = 0; d >= FLOOR; d -= 10){
+      const y = Math.round(M.t + ph*(1 - (d - FLOOR)/(-FLOOR))) + .5;
+      ctx.beginPath(); ctx.moveTo(M.l, y); ctx.lineTo(w - M.r, y); ctx.stroke();
+      ctx.fillText(d + " dB", M.l - 8, y);
+    }
+  } else {
+    const top = amax*1.08;
+    const step = Math.pow(10, Math.floor(Math.log10(top))) * (top/Math.pow(10, Math.floor(Math.log10(top))) < 2 ? 0.2 : 0.5);
+    for (let v = 0; v <= top + 1e-9; v += step){
+      const y = Math.round(Yl(v)) + .5;
+      ctx.beginPath(); ctx.moveTo(M.l, y); ctx.lineTo(w - M.r, y); ctx.stroke();
+      ctx.fillText(fmt(v, step < 0.1 ? 2 : (step < 1 ? 1 : 0)), M.l - 8, y);
+    }
+  }
+
+  hitA = [];
+  const bw = Math.max(3, Math.min(sw*0.55, 26));
+  const st = tickStep(state.N + 1);
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (const c of C){
+    if (c.n > state.N) continue;
+    const x = X(c.n);
+    hitA.push({n: c.n, x0: x - sw/2, x1: x + sw/2});
+    if (c.A > 1e-12){
+      const y = Y(c.A);
+      if (y < base - 0.5){
+        ctx.fillStyle = c.on ? css("--teal") : css("--off");
+        ctx.fillRect(x - bw/2, y, bw, base - y);
+      }
+    } else {
+      ctx.fillStyle = css("--off");
+      ctx.fillRect(x - bw/2, base - 2, bw, 2);
+    }
+    if (c.n % st === 0 || c.n === 1 || state.N <= 12){
+      ctx.fillStyle = css("--ink-soft");
+      ctx.fillText(String(c.n), x, base + 7);
+    }
+  }
+  ctx.strokeStyle = "#9aa8b2"; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(M.l, base + .5); ctx.lineTo(w - M.r, base + .5); ctx.stroke();
+  ctx.fillStyle = css("--ink-soft"); ctx.font = "12px system-ui,sans-serif";
+  ctx.textAlign = "right"; ctx.textBaseline = "bottom";
+  ctx.fillText("rang n  (fréquence n·f₁)", w - M.r, h - 2);
+}
+
+function drawPhase(){
+  const cv = document.getElementById("cPha");
+  const {ctx, w, h} = prep(cv);
+  const M = {l: 52, r: 12, t: 12, b: 34};
+  const ph = h - M.t - M.b;
+  const {sw, X} = slots(w, M);
+  const C = coefs();
+  let amax = 0;
+  for (const c of C) if (c.n <= state.N) amax = Math.max(amax, c.A);
+  const Y = p => M.t + ph*(PI - p)/(2*PI);
+
+  ctx.strokeStyle = css("--grid"); ctx.lineWidth = 1;
+  ctx.fillStyle = css("--ink-soft"); ctx.font = "12px system-ui,sans-serif";
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  const labs = [[PI,"π"],[PI/2,"π/2"],[0,"0"],[-PI/2,"−π/2"],[-PI,"−π"]];
+  for (const [v, lab] of labs){
+    const y = Math.round(Y(v)) + .5;
+    ctx.beginPath(); ctx.moveTo(M.l, y); ctx.lineTo(w - M.r, y); ctx.stroke();
+    ctx.fillText(lab, M.l - 8, y);
+  }
+  ctx.strokeStyle = "#9aa8b2"; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(M.l, Math.round(Y(0))+.5); ctx.lineTo(w - M.r, Math.round(Y(0))+.5); ctx.stroke();
+
+  hitP = [];
+  const st = tickStep(state.N + 1);
+  const r = Math.max(2.5, Math.min(sw*0.22, 5));
+  for (const c of C){
+    if (c.n > state.N) continue;
+    const x = X(c.n);
+    hitP.push({n: c.n, x0: x - sw/2, x1: x + sw/2});
+    if (c.A > 1e-9*Math.max(amax, 1e-12) && c.A > 1e-12){
+      const col = c.on ? css("--plum") : css("--off");
+      ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.4, Math.min(sw*0.18, 3));
+      ctx.beginPath(); ctx.moveTo(x, Y(0)); ctx.lineTo(x, Y(c.phi)); ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(x, Y(c.phi), r, 0, TAU); ctx.fill();
+    }
+    if (c.n % st === 0 || c.n === 1 || state.N <= 12){
+      ctx.fillStyle = css("--ink-soft"); ctx.textAlign = "center"; ctx.textBaseline = "top";
+      ctx.fillText(String(c.n), x, M.t + ph + 7);
+    }
+  }
+  ctx.fillStyle = css("--ink-soft"); ctx.textAlign = "right"; ctx.textBaseline = "bottom";
+  ctx.fillText("rang n", w - M.r, h - 2);
+}
+
+/* -------------------------- indicateurs --------------------------- */
+function stats(){
+  const C = coefs();
+  let count = (C[0].on && C[0].A > 1e-12) ? 1 : 0;
+  for (let n = 1; n <= state.N; n++) if (C[n].on && C[n].A > 1e-12) count++;
+
+  const NS = 4000;
+  let se = 0, ss = 0;
+  for (let i = 0; i < NS; i++){
+    const u = (i + 0.5)/NS, t = target(u), d = t - partial(u, C);
+    se += d*d; ss += t*t;
+  }
+  const err = ss > 0 ? Math.sqrt(se/ss)*100 : 0;
+
+  let pr = 0;
+  if (C[0].on) pr += C[0].A*C[0].A;
+  for (let n = 1; n <= state.N; n++) if (C[n].on) pr += C[n].A*C[n].A/2;
+  const pow = ss > 0 ? Math.min(100, pr/(ss/NS)*100) : 0;
+
+  document.getElementById("sCount").textContent = count;
+  document.getElementById("sErr").textContent = fmt(err, err < 10 ? 2 : 1) + " %";
+  document.getElementById("sPow").textContent = fmt(pow, 2) + " %";
+}
+
+function render(){
+  const S = SIGNALS[state.sig];
+  document.getElementById("oN").textContent = state.N;
+  document.getElementById("oA").textContent = fmt(state.alpha, 2);
+  document.getElementById("fAlpha").hidden = (state.sig !== "creneau");
+  document.getElementById("series").innerHTML =
+    S.series.replace(/</g, "&lt;") + "<em>" + S.note + "</em>";
+  document.getElementById("hintA").textContent = state.db
+    ? "Référence 0 dB : la raie la plus forte affichée. Plancher à −60 dB."
+    : "Cliquez sur une raie pour retirer ou remettre l'harmonique. La raie de rang 0 est la valeur moyenne.";
+  drawTime(); drawAmp(); drawPhase(); stats();
+}
+
+/* --------------------------- interactions ------------------------- */
+document.getElementById("segSignal").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  state.sig = b.dataset.sig; state.off.clear(); stop();
+  for (const x of e.currentTarget.children) x.setAttribute("aria-pressed", String(x === b));
+  render();
+});
+document.getElementById("segScale").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  state.db = (b.dataset.scale === "db");
+  for (const x of e.currentTarget.children) x.setAttribute("aria-pressed", String(x === b));
+  render();
+});
+document.getElementById("rN").addEventListener("input", e => {
+  state.N = +e.target.value; stop(); render();
+});
+document.getElementById("rA").addEventListener("input", e => {
+  state.alpha = +e.target.value; render();
+});
+document.getElementById("kTarget").addEventListener("change", e => { state.showTarget = e.target.checked; render(); });
+document.getElementById("kHarm").addEventListener("change", e => { state.showHarm = e.target.checked; render(); });
+document.getElementById("kGibbs").addEventListener("change", e => { state.showGibbs = e.target.checked; render(); });
+document.getElementById("bReset").addEventListener("click", () => { state.off.clear(); render(); });
+
+function setN(n){
+  state.N = Math.max(0, Math.min(NMAX, n));
+  document.getElementById("rN").value = state.N;
+  render();
+}
+function stop(){
+  state.playing = false; clearInterval(state.timer); state.timer = null;
+  document.getElementById("bPlay").textContent = "Ajouter une à une";
+}
+document.getElementById("bPlay").addEventListener("click", () => {
+  if (state.playing){ stop(); return; }
+  state.playing = true;
+  document.getElementById("bPlay").textContent = "Arrêter";
+  setN(0);
+  state.timer = setInterval(() => {
+    if (state.N >= NMAX){ stop(); return; }
+    setN(state.N + 1);
+    if (state.playing) document.getElementById("bPlay").textContent = "Arrêter";
+  }, 260);
+});
+document.addEventListener("keydown", e => {
+  if (/input|button|select/i.test(e.target.tagName)) return;
+  if (e.key === "ArrowRight" || e.key === "ArrowUp"){ stop(); setN(state.N + 1); e.preventDefault(); }
+  if (e.key === "ArrowLeft"  || e.key === "ArrowDown"){ stop(); setN(state.N - 1); e.preventDefault(); }
+  if (e.key === " "){ document.getElementById("bPlay").click(); e.preventDefault(); }
+});
+
+function bind(cvId, tipId, getHits){
+  const cv = document.getElementById(cvId), tip = document.getElementById(tipId);
+  const at = ev => {
+    const r = cv.getBoundingClientRect(), x = ev.clientX - r.left;
+    for (const b of getHits()) if (x >= b.x0 && x <= b.x1) return {b, y: ev.clientY - r.top, x};
+    return null;
+  };
+  cv.addEventListener("mousemove", ev => {
+    const hit = at(ev);
+    if (!hit){ tip.classList.remove("on"); cv.style.cursor = "default"; return; }
+    const C = coefs(), c = C[hit.b.n];
+    const a1 = C[1] ? C[1].A : 0;
+    let txt = (c.n === 0 ? "valeur moyenne A₀" : "rang n = " + c.n);
+    txt += " — A = " + fmt(c.A, 4);
+    if (c.n > 0 && a1 > 1e-12 && c.A > 1e-12)
+      txt += " (" + fmt(20*Math.log10(c.A/a1), 1) + " dB / fondamental)";
+    if (c.n > 0) txt += c.A > 1e-12 ? " — φ = " + fmt(c.phi/PI, 2) + " π" : " — raie absente";
+    txt += c.on ? "" : " — retirée";
+    tip.textContent = txt;
+    tip.classList.add("on");
+    cv.style.cursor = "pointer";
+    const tw = tip.offsetWidth;
+    tip.style.left = Math.max(2, Math.min(hit.x - tw/2, cv.clientWidth - tw - 2)) + "px";
+    tip.style.top = Math.max(2, hit.y - 34) + "px";
+  });
+  cv.addEventListener("mouseleave", () => { tip.classList.remove("on"); });
+  cv.addEventListener("click", ev => {
+    const hit = at(ev); if (!hit) return;
+    stop();
+    if (state.off.has(hit.b.n)) state.off.delete(hit.b.n); else state.off.add(hit.b.n);
+    render();
+  });
+}
+bind("cAmp", "tipA", () => hitA);
+bind("cPha", "tipP", () => hitP);
+
+document.getElementById("bPng").addEventListener("click", () => {
+  const a = document.createElement("a");
+  a.download = "synthese-fourier-" + state.sig + "-N" + state.N + ".png";
+  a.href = document.getElementById("cTime").toDataURL("image/png");
+  a.click();
+});
+
+let rt = null;
+window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 120); });
+render();
+</script>
+</body>
+</html>

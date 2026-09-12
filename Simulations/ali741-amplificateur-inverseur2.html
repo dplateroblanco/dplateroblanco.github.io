@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Banc virtuel — amplificateur inverseur à ALI 741</title>
+<style>
+:root{
+  --bench:#141a20;        /* fond de paillasse */
+  --panel:#1c242c;        /* face avant instrument */
+  --panel-hi:#26313b;
+  --screen:#0b1116;       /* écran */
+  --grat:#1e2f38;         /* graticule */
+  --ink:#dde6ec;
+  --ink-dim:#8ea0ad;
+  --ink-faint:#5d6f7c;
+  --ve:#4ec8e0;           /* voie 1 : entrée */
+  --vs:#f5a623;           /* voie 2 : sortie */
+  --eps:#8ad06a;          /* voie 3 : epsilon */
+  --ideal:#7b8a95;
+  --sat:#e05263;
+  --line:#2c3841;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:var(--bench);
+  color:var(--ink);
+  font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-size:14px;
+  line-height:1.45;
+  font-feature-settings:"tnum" 1;
+}
+h1{
+  font-size:17px;font-weight:600;margin:0;letter-spacing:.2px;
+}
+h1 span{color:var(--ink-faint);font-weight:400}
+header{
+  padding:14px 20px 12px;border-bottom:1px solid var(--line);
+  display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;
+}
+header p{margin:0;color:var(--ink-dim);font-size:13px}
+
+.layout{display:grid;grid-template-columns:312px minmax(0,1fr);gap:16px;padding:16px 20px 28px;align-items:start}
+@media (max-width:900px){.layout{grid-template-columns:1fr}}
+
+/* ---------- panneau de commande ---------- */
+.rail{background:var(--panel);border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.grp{border-bottom:1px solid var(--line);padding:12px 14px 14px}
+.grp:last-child{border-bottom:0}
+.grp > h2{
+  margin:0 0 10px;font-size:12.5px;font-weight:600;color:var(--ink-dim);
+  letter-spacing:.3px;
+}
+.ctl{margin-bottom:11px}
+.ctl:last-child{margin-bottom:0}
+.ctl .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:3px}
+.ctl label{font-size:13px;color:var(--ink)}
+.val{font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--vs);white-space:nowrap}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:18px;background:transparent;margin:0;cursor:pointer;
+}
+input[type=range]::-webkit-slider-runnable-track{height:3px;background:var(--panel-hi);border-radius:2px}
+input[type=range]::-moz-range-track{height:3px;background:var(--panel-hi);border-radius:2px}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:14px;height:14px;margin-top:-5.5px;border-radius:50%;
+  background:var(--ink);border:1px solid #000;
+}
+input[type=range]::-moz-range-thumb{width:13px;height:13px;border:1px solid #000;border-radius:50%;background:var(--ink)}
+input[type=range]:focus-visible{outline:2px solid var(--ve);outline-offset:3px}
+input[type=range]:disabled{opacity:.32;cursor:not-allowed}
+
+.sw{display:flex;align-items:flex-start;gap:9px;padding:6px 0;cursor:pointer}
+.sw input{margin:3px 0 0;accent-color:var(--vs);width:15px;height:15px;flex:none}
+.sw span{font-size:13px}
+.sw small{display:block;color:var(--ink-faint);font-size:11.5px;line-height:1.35}
+.sw input:focus-visible{outline:2px solid var(--ve);outline-offset:2px}
+
+.presets{display:flex;flex-wrap:wrap;gap:6px}
+.presets button{
+  font:inherit;font-size:12px;padding:5px 9px;border-radius:2px;cursor:pointer;
+  background:var(--panel-hi);color:var(--ink);border:1px solid var(--line);
+}
+.presets button:hover{background:#31404c;border-color:#3d4e5b}
+.presets button:focus-visible{outline:2px solid var(--ve);outline-offset:2px}
+
+/* ---------- zone instruments ---------- */
+.stack{display:flex;flex-direction:column;gap:16px;min-width:0}
+.instr{background:var(--panel);border:1px solid var(--line);border-radius:3px}
+.instr .head{
+  display:flex;justify-content:space-between;align-items:center;gap:12px;
+  padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap;
+}
+.instr .head h2{margin:0;font-size:13px;font-weight:600}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink-dim)}
+.legend i{display:inline-block;width:14px;height:2px;vertical-align:middle;margin-right:5px}
+.screen{background:var(--screen);padding:0;position:relative}
+canvas{display:block;width:100%}
+#scope{height:340px}
+#xy{height:250px}
+@media (max-width:640px){#scope{height:260px}#xy{height:210px}}
+
+.split{display:grid;grid-template-columns:minmax(0,1fr) 268px;gap:16px}
+@media (max-width:1050px){.split{grid-template-columns:1fr}}
+
+.readout{padding:10px 14px 13px}
+.readout dl{display:grid;grid-template-columns:1fr auto;gap:3px 10px;margin:0}
+.readout dt{color:var(--ink-dim);font-size:12.5px}
+.readout dd{margin:0;font-variant-numeric:tabular-nums;font-size:12.5px;text-align:right}
+.readout hr{border:0;border-top:1px solid var(--line);margin:9px 0}
+
+.flags{display:flex;flex-direction:column;gap:6px;padding:10px 14px 13px}
+.flag{
+  display:flex;gap:9px;align-items:flex-start;font-size:12.5px;
+  padding:7px 9px;border-radius:2px;background:#182028;border-left:3px solid var(--ink-faint);color:var(--ink-dim);
+}
+.flag b{display:block;color:var(--ink-dim);font-weight:600}
+.flag.on{background:#2a1c1e;border-left-color:var(--sat);color:var(--ink)}
+.flag.on b{color:var(--sat)}
+.flag.warn{background:#2a2418;border-left-color:var(--vs);color:var(--ink)}
+.flag.warn b{color:var(--vs)}
+
+.transport{display:flex;align-items:center;gap:10px}
+.transport button{
+  font:inherit;font-size:12px;padding:5px 11px;border-radius:2px;cursor:pointer;
+  background:var(--panel-hi);color:var(--ink);border:1px solid var(--line);min-width:74px;
+}
+.transport button:focus-visible{outline:2px solid var(--ve);outline-offset:2px}
+.transport input[type=range]{width:92px}
+
+svg.sch{display:block;width:100%;height:auto;background:var(--screen)}
+.sch text{font-family:Georgia,"Times New Roman",serif;font-size:12px;fill:var(--ink-dim)}
+.sch .node{font-size:11px;fill:var(--ink-faint)}
+.sch .wire{stroke:#4d616e;stroke-width:1.4;fill:none;stroke-linecap:round}
+.sch .body{stroke:#6d8494;stroke-width:1.4;fill:none}
+
+footer{padding:0 20px 26px;color:var(--ink-faint);font-size:12.5px;max-width:76ch}
+footer code{color:var(--ink-dim)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Amplificateur inverseur <span>— ALI 741, réponse temporelle</span></h1>
+  <p>Modèle : gain différentiel du premier ordre, slew-rate, saturation en tension.</p>
+</header>
+
+<div class="layout">
+
+  <!-- ============ PANNEAU ============ -->
+  <div class="rail">
+
+    <div class="grp">
+      <h2>Situations types</h2>
+      <div class="presets" id="presets"></div>
+    </div>
+
+    <div class="grp">
+      <h2>Générateur d'entrée</h2>
+      <div class="ctl">
+        <div class="top"><label for="sVe">Amplitude V<sub>e</sub></label><span class="val" id="vVe"></span></div>
+        <input type="range" id="sVe" min="0" max="1000" value="200">
+      </div>
+      <div class="ctl">
+        <div class="top"><label for="sF">Fréquence f</label><span class="val" id="vF"></span></div>
+        <input type="range" id="sF" min="0" max="1000" value="376">
+      </div>
+      <label class="sw"><input type="checkbox" id="cDc"><span>Ajouter une composante continue<small>Décale le signal d'entrée d'un offset constant.</small></span></label>
+      <div class="ctl">
+        <div class="top"><label for="sOff">Offset U<sub>0</sub></label><span class="val" id="vOff"></span></div>
+        <input type="range" id="sOff" min="-1000" max="1000" value="400" disabled>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h2>Résistances</h2>
+      <div class="ctl">
+        <div class="top"><label for="sR1">R<sub>1</sub> (entrée)</label><span class="val" id="vR1"></span></div>
+        <input type="range" id="sR1" min="0" max="1000" value="500">
+      </div>
+      <div class="ctl">
+        <div class="top"><label for="sR2">R<sub>2</sub> (rétroaction)</label><span class="val" id="vR2"></span></div>
+        <input type="range" id="sR2" min="0" max="1000" value="580">
+      </div>
+      <label class="sw"><input type="checkbox" id="cRinf"><span>R<sub>2</sub> → ∞ : boucle coupée<small>Plus de rétroaction : l'ALI fonctionne en comparateur.</small></span></label>
+    </div>
+
+    <div class="grp">
+      <h2>Imperfections de l'ALI</h2>
+      <label class="sw"><input type="checkbox" id="cSat" checked><span>Saturation ±V<sub>sat</sub></span></label>
+      <div class="ctl">
+        <div class="top"><label for="sVsat">V<sub>sat</sub></label><span class="val" id="vVsat"></span></div>
+        <input type="range" id="sVsat" min="1" max="15" step="0.5" value="14">
+      </div>
+      <label class="sw"><input type="checkbox" id="cSr" checked><span>Slew-rate (vitesse de balayage)</span></label>
+      <div class="ctl">
+        <div class="top"><label for="sSr">σ</label><span class="val" id="vSr"></span></div>
+        <input type="range" id="sSr" min="0" max="1000" value="400">
+      </div>
+      <label class="sw"><input type="checkbox" id="cLp" checked><span>Gain fini et passe-bas du 1<sup>er</sup> ordre</span></label>
+      <div class="ctl">
+        <div class="top"><label for="sMu">μ<sub>0</sub></label><span class="val" id="vMu"></span></div>
+        <input type="range" id="sMu" min="0" max="1000" value="662">
+      </div>
+      <div class="ctl">
+        <div class="top"><label for="sFc">f<sub>c</sub> de l'ALI</label><span class="val" id="vFc"></span></div>
+        <input type="range" id="sFc" min="0" max="1000" value="233">
+      </div>
+    </div>
+
+    <div class="grp">
+      <h2>Calibres de l'oscilloscope</h2>
+      <label class="sw"><input type="checkbox" id="cAuto" checked><span>Calibres automatiques<small>Décochez pour régler vous-même, comme sur la paillasse.</small></span></label>
+      <div class="ctl">
+        <div class="top"><label for="sVdiv">Sensibilité verticale</label><span class="val" id="vVdiv"></span></div>
+        <input type="range" id="sVdiv" min="0" max="20" step="1" value="12" disabled>
+      </div>
+      <div class="ctl">
+        <div class="top"><label for="sTdiv">Base de temps</label><span class="val" id="vTdiv"></span></div>
+        <input type="range" id="sTdiv" min="0" max="29" step="1" value="17" disabled>
+      </div>
+      <div class="ctl">
+        <div class="top"><label for="sVpos">Position verticale</label><span class="val" id="vVpos"></span></div>
+        <input type="range" id="sVpos" min="-4" max="4" step="0.1" value="0">
+      </div>
+      <p style="margin:2px 0 0;color:var(--ink-faint);font-size:11.5px">Écran de 10 × 8 divisions. Les deux voies partagent la même sensibilité.</p>
+    </div>
+
+    <div class="grp">
+      <h2>Affichage</h2>
+      <label class="sw"><input type="checkbox" id="cIdeal" checked><span>Sortie de l'ALI idéal −(R<sub>2</sub>/R<sub>1</sub>)·v<sub>e</sub></span></label>
+      <label class="sw"><input type="checkbox" id="cEps"><span>Tension différentielle ε(t)</span></label>
+      <label class="sw"><input type="checkbox" id="cTrans"><span>Partir du régime transitoire (t = 0)</span></label>
+    </div>
+  </div>
+
+  <!-- ============ INSTRUMENTS ============ -->
+  <div class="stack">
+
+    <div class="instr">
+      <div class="head"><h2>Montage</h2>
+        <div class="legend"><span id="schInfo"></span></div>
+      </div>
+      <svg class="sch" viewBox="0 0 430 190" role="img" aria-label="Schéma de l'amplificateur inverseur">
+        <!-- entrée -->
+        <circle cx="22" cy="80" r="3.5" fill="none" stroke="#4d616e" stroke-width="1.4"/>
+        <path class="wire" d="M25.5 80 H62"/>
+        <rect class="body" x="62" y="71" width="44" height="18"/>
+        <path class="wire" d="M106 80 H152"/>
+        <text x="84" y="66" text-anchor="middle" id="lblR1">R₁</text>
+        <text class="node" x="22" y="98" text-anchor="middle">v<tspan baseline-shift="sub" font-size="9">e</tspan></text>
+        <!-- noeud A -->
+        <circle cx="152" cy="80" r="3" fill="#4d616e"/>
+        <text class="node" x="146" y="72" text-anchor="end">A</text>
+        <!-- rétroaction -->
+        <path class="wire" d="M152 80 V28 H188" id="fbL"/>
+        <rect class="body" x="188" y="19" width="44" height="18" id="fbBox"/>
+        <path class="wire" d="M232 28 H352 V95" id="fbR"/>
+        <text x="210" y="14" text-anchor="middle" id="lblR2">R₂</text>
+        <!-- ALI -->
+        <path class="body" d="M176 50 V140 L262 95 Z"/>
+        <path class="wire" d="M152 80 H176"/>
+        <path class="wire" d="M152 115 H176"/>
+        <text x="186" y="84" fill="#c8d4dc" font-size="15">−</text>
+        <text x="186" y="120" fill="#c8d4dc" font-size="15">+</text>
+        <text x="205" y="99" fill="#6d8494" font-size="11" text-anchor="middle">741</text>
+        <!-- masse -->
+        <path class="wire" d="M152 115 V150"/>
+        <path class="wire" d="M142 150 H162 M146 155 H158 M150 160 H154"/>
+        <!-- sortie -->
+        <path class="wire" d="M262 95 H394"/>
+        <circle cx="398" cy="95" r="3.5" fill="none" stroke="#4d616e" stroke-width="1.4"/>
+        <circle cx="352" cy="95" r="3" fill="#4d616e"/>
+        <text class="node" x="398" y="113" text-anchor="middle">v<tspan baseline-shift="sub" font-size="9">s</tspan></text>
+        <!-- epsilon -->
+        <path class="wire" d="M166 80 V115" stroke="#8ad06a" stroke-dasharray="2 3" stroke-width="1"/>
+        <text x="160" y="102" fill="#8ad06a" font-size="11" text-anchor="end">ε</text>
+      </svg>
+    </div>
+
+    <div class="instr">
+      <div class="head">
+        <h2>Chronogramme</h2>
+        <div class="legend">
+          <span><i style="background:var(--ve)"></i>v<sub>e</sub>(t)</span>
+          <span><i style="background:var(--vs)"></i>v<sub>s</sub>(t)</span>
+          <span id="legIdeal"><i style="background:var(--ideal)"></i>idéal</span>
+          <span id="legEps" hidden><i style="background:var(--eps)"></i>ε(t)</span>
+        </div>
+        <div class="transport">
+          <button id="btnPlay">Pause</button>
+          <label for="sSpeed" style="color:var(--ink-dim);font-size:12px">vitesse</label>
+          <input type="range" id="sSpeed" min="0" max="100" value="50">
+        </div>
+      </div>
+      <div class="screen"><canvas id="scope"></canvas></div>
+    </div>
+
+    <div class="split">
+      <div class="instr">
+        <div class="head"><h2>Caractéristique v<sub>s</sub> = f(v<sub>e</sub>)</h2>
+          <div class="legend"><span>mode XY</span></div>
+        </div>
+        <div class="screen"><canvas id="xy"></canvas></div>
+      </div>
+
+      <div class="instr">
+        <div class="head"><h2>Mesures</h2></div>
+        <div class="readout">
+          <dl id="meas"></dl>
+        </div>
+        <div class="flags" id="flags"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  Modèle simulé : <code>τ·dv<sub>s</sub>/dt + v<sub>s</sub> = μ₀·ε</code> avec <code>ε = −(α·v<sub>e</sub> + β·v<sub>s</sub>)</code>,
+  <code>α = R₂/(R₁+R₂)</code>, <code>β = R₁/(R₁+R₂)</code>, puis limitation de |dv<sub>s</sub>/dt| à σ et écrêtage à ±V<sub>sat</sub>.
+  Intégration par exponentielle exacte sur chaque pas, régime permanent atteint avant l'affichage (sauf en mode transitoire).
+</footer>
+
+<script>
+"use strict";
+
+/* ============================== utilitaires ============================== */
+const $ = s => document.querySelector(s);
+const clamp = (x,a,b) => x<a?a:(x>b?b:x);
+
+function si(x, unit, dec){
+  if(dec===undefined) dec = 2;
+  if(!isFinite(x)) return "∞ " + unit;
+  const a = Math.abs(x);
+  if(a === 0) return "0 " + unit;
+  const P = [[1e6,"M"],[1e3,"k"],[1,""],[1e-3,"m"],[1e-6,"µ"],[1e-9,"n"]];
+  for(const [s,p] of P) if(a >= s*0.9995) return (x/s).toFixed(dec).replace(/\.?0+$/,"") + " " + p + unit;
+  return x.toExponential(1) + " " + unit;
+}
+const logMap = (v,min,max) => min*Math.pow(max/min, v/1000);
+const logInv = (x,min,max) => 1000*Math.log(x/min)/Math.log(max/min);
+
+const E12 = [10,12,15,18,22,27,33,39,47,56,68,82];
+function snapE12(x){
+  const d = Math.pow(10, Math.floor(Math.log10(x))-1);
+  const m = x/d;
+  let best = E12[0], err = Infinity;
+  for(const e of E12.concat([100])){ const er = Math.abs(Math.log(m/e)); if(er<err){err=er;best=e;} }
+  return best*d;
+}
+
+/* ============================== état ============================== */
+const P = {
+  Ve:1, f:1000, dc:false, U0:2,
+  R1:1000, R2:10000, rInf:false,
+  sat:true, Vsat:14,
+  sr:true, SR:0.5,          // V/µs
+  lp:true, mu0:2e5, fc:5,
+  autoCal:true, vDiv:5, tDiv:5e-4, vPos:0,
+  showIdeal:true, showEps:false, transient:false
+};
+
+const RG = {
+  Ve:[0.005,5], f:[10,2e6], R1:[100,1e5], R2:[1e3,1e7],
+  SR:[0.02,20], mu0:[1e3,1e7], fc:[0.5,5000]
+};
+
+/* calibres 1-2-5, comme les commutateurs d'un oscilloscope */
+function seq125(emin,emax){
+  const L = [];
+  for(let e=emin;e<=emax;e++) for(const m of [1,2,5]) L.push(+(m*Math.pow(10,e)).toPrecision(12));
+  return L;
+}
+const VCAL = seq125(-4,2);     // 0,1 mV/div → 500 V/div
+const TCAL = seq125(-9,0);     // 1 ns/div → 5 s/div
+const NDIVX = 10, NDIVY = 8;   // écran 10 × 8 divisions
+function pickCal(L, want){ for(const c of L) if(c >= want*0.9999) return c; return L[L.length-1]; }
+function nearestCal(L, v){ let b=L[0],e=Infinity; for(const c of L){const d=Math.abs(Math.log(c/v)); if(d<e){e=d;b=c;}} return b; }
+
+/* ============================== simulation ============================== */
+const NB = 1200;       // colonnes d'échantillonnage écran
+const NMES = 3;        // périodes utilisées pour les mesures
+
+const buf = {
+  ve:new Float32Array(NB), vs:new Float32Array(NB), eps:new Float32Array(NB),
+  vsMin:new Float32Array(NB), vsMax:new Float32Array(NB), ideal:new Float32Array(NB)
+};
+const mes = new Float32Array(NB);   // v_s sur exactement NMES périodes
+let M = {};                          // mesures
+
+function simulate(){
+  const f = P.f, T = 1/f, w = 2*Math.PI*f;
+
+  let alpha, beta;
+  if(P.rInf){ alpha = 1; beta = 0; }
+  else { const s = P.R1 + P.R2; alpha = P.R2/s; beta = P.R1/s; }
+
+  const Vsat = P.Vsat, SR = P.SR*1e6;                 // V/s
+  const mu0 = P.mu0, tau = 1/(2*Math.PI*P.fc);
+  const loop = 1 + mu0*beta;                          // 1 + μ₀β
+  const a = loop/tau;
+  const tauCl = P.lp ? 1/a : 0;
+  const Gcl = -mu0*alpha/loop;                        // gain statique réel
+  const Gid = P.rInf ? -Infinity : -P.R2/P.R1;        // gain idéal
+  const g   = P.lp ? Gcl : (P.rInf ? -1e9 : Gid);
+  const U0  = P.dc ? P.U0 : 0;
+  const ex = dt => P.lp ? Math.exp(-a*dt) : 0;
+
+  let vs = 0, tAbs = 0;
+
+  /* ---------- passe 1 : établissement du régime + NMES périodes de mesure ---------- */
+  let dtA = T/4000;
+  if(P.sr) dtA = Math.min(dtA, (2*Vsat/SR)/60);
+  let nA = Math.ceil(T/dtA);
+  const warmPer = P.transient ? 0 : Math.round(clamp(Math.max(2, 5*tauCl/T), 2, 30));
+  if((warmPer+NMES)*nA > 8e5) nA = Math.floor(8e5/(warmPer+NMES));
+  nA = Math.max(nA, 400);
+  dtA = T/nA;
+
+  mes.fill(0);
+  const cntM = new Float32Array(NB);
+  let satN = 0, srN = 0, maxSlope = 0, maxVe = 0, maxVs = -Infinity, minVs = Infinity, maxAbsEps = 0;
+  {
+    const e1 = ex(dtA), dvMax = SR*dtA, nW = warmPer*nA, nM = NMES*nA;
+    for(let i=0;i<nW+nM;i++){
+      const t = (i+0.5)*dtA;
+      const ve = P.Ve*Math.sin(w*t) + U0;
+      const prev = vs;
+      let dv = (vs*e1 + (1-e1)*(g*ve)) - vs;
+      let limited = false;
+      if(P.sr){ if(dv > dvMax){ dv = dvMax; limited = true; } else if(dv < -dvMax){ dv = -dvMax; limited = true; } }
+      vs += dv;
+      let clipped = false;
+      if(P.sat){
+        if(vs > Vsat){ vs = Vsat; clipped = true; }
+        else if(vs < -Vsat){ vs = -Vsat; clipped = true; }
+      }
+      const j = i - nW;
+      if(j >= 0){
+        let b = (j*NB/nM)|0; if(b >= NB) b = NB-1;
+        mes[b] += vs; cntM[b]++;
+        if(clipped) satN++;
+        if(limited && !clipped) srN++;
+        const sl = Math.abs(vs-prev)/dtA; if(sl > maxSlope) maxSlope = sl;
+        if(Math.abs(ve) > maxVe) maxVe = Math.abs(ve);
+        if(vs > maxVs) maxVs = vs;
+        if(vs < minVs) minVs = vs;
+        const eps = -(alpha*ve + beta*vs);
+        if(Math.abs(eps) > maxAbsEps) maxAbsEps = Math.abs(eps);
+      }
+    }
+    tAbs = (nW+nM)*dtA;   // multiple entier de T : la fenêtre démarre sur un passage à zéro
+    for(let b=0;b<NB;b++) mes[b] /= cntM[b] || 1;
+  }
+
+  /* analyse harmonique sur exactement NMES périodes */
+  let dc = 0;
+  for(let b=0;b<NB;b++) dc += mes[b];
+  dc /= NB;
+  const A = [];
+  let phi = 0;
+  for(let k=1;k<=12;k++){
+    let sn=0, cn=0;
+    for(let b=0;b<NB;b++){
+      const ph = 2*Math.PI*k*NMES*(b+0.5)/NB;
+      sn += mes[b]*Math.sin(ph); cn += mes[b]*Math.cos(ph);
+    }
+    A[k] = 2/NB*Math.hypot(sn,cn);
+    if(k===1) phi = Math.atan2(cn,sn);
+  }
+  let h = 0; for(let k=2;k<=12;k++) h += A[k]*A[k];
+  const thd = A[1] > 1e-9 ? Math.sqrt(h)/A[1] : 0;
+
+  /* ---------- calibres ---------- */
+  const pk = Math.max(maxVe, Math.abs(maxVs), Math.abs(minVs), P.sat ? P.Vsat : 0, 1e-4);
+  // plages utiles des commutateurs, bornées autour du signal courant
+  const vLo = pickCal(VCAL, pk/400), vHi = pickCal(VCAL, pk*2);
+  const tLo = pickCal(TCAL, T/200),  tHi = pickCal(TCAL, T*20);
+  if(P.autoCal){
+    P.vDiv = pickCal(VCAL, pk*1.06/(NDIVY/2));
+    P.tDiv = pickCal(TCAL, NMES*T/NDIVX);
+  }
+  P.vDiv = clamp(P.vDiv, vLo, vHi);
+  P.tDiv = clamp(P.tDiv, tLo, tHi);
+  const Twin = NDIVX*P.tDiv;
+
+  /* ---------- passe 2 : fenêtre affichée ---------- */
+  let dtB = T/4000;
+  if(P.sr) dtB = Math.min(dtB, (2*Vsat/SR)/60);
+  dtB = Math.min(dtB, Twin/(NB*4));
+  let nB = Math.ceil(Twin/dtB);
+  if(nB > 8e5) nB = 8e5;
+  if(nB < NB) nB = NB;
+  dtB = Twin/nB;
+
+  buf.vsMin.fill(Infinity); buf.vsMax.fill(-Infinity);
+  buf.ve.fill(0); buf.vs.fill(0); buf.eps.fill(0);
+  const cntD = new Float32Array(NB);
+  {
+    const e1 = ex(dtB), dvMax = SR*dtB;
+    for(let i=0;i<nB;i++){
+      const t = tAbs + (i+0.5)*dtB;
+      const ve = P.Ve*Math.sin(w*t) + U0;
+      let dv = (vs*e1 + (1-e1)*(g*ve)) - vs;
+      if(P.sr){ if(dv > dvMax) dv = dvMax; else if(dv < -dvMax) dv = -dvMax; }
+      vs += dv;
+      if(P.sat){ if(vs > Vsat) vs = Vsat; else if(vs < -Vsat) vs = -Vsat; }
+      let b = (i*NB/nB)|0; if(b >= NB) b = NB-1;
+      buf.ve[b] += ve; buf.vs[b] += vs; buf.eps[b] += -(alpha*ve + beta*vs); cntD[b]++;
+      if(vs < buf.vsMin[b]) buf.vsMin[b] = vs;
+      if(vs > buf.vsMax[b]) buf.vsMax[b] = vs;
+    }
+  }
+  let epsWin = 0;
+  for(let b=0;b<NB;b++){
+    const c = cntD[b] || 1;
+    buf.ve[b] /= c; buf.vs[b] /= c; buf.eps[b] /= c;
+    if(!isFinite(buf.vsMin[b])) buf.vsMin[b] = buf.vs[b];
+    if(!isFinite(buf.vsMax[b])) buf.vsMax[b] = buf.vs[b];
+    buf.ideal[b] = P.rInf ? NaN : Gid*buf.ve[b];
+    if(Math.abs(buf.eps[b]) > epsWin) epsWin = Math.abs(buf.eps[b]);
+  }
+
+  M = {
+    alpha, beta, Gid, Gcl, tauCl,
+    fCl: P.lp ? P.fc*loop : Infinity,
+    gbw: mu0*P.fc,
+    A1:A[1], phi:phi*180/Math.PI, dc, thd,
+    maxSlope, needSlope: 2*Math.PI*f*A[1],
+    maxVe, maxVs, minVs, maxAbsEps, epsWin, vLo, vHi, tLo, tHi,
+    satFrac: satN/(NMES*nA), srFrac: srN/(NMES*nA),
+    T, Twin, gainMes: P.Ve>1e-6 ? A[1]/P.Ve : NaN
+  };
+}
+
+/* ============================== rendu ============================== */
+function fit(cv){
+  const r = cv.getBoundingClientRect();
+  const d = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(r.width*d)), h = Math.max(1, Math.round(r.height*d));
+  if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(d,0,0,d,0,0);
+  return {ctx, W:r.width, H:r.height};
+}
+
+function niceStep(range, target){
+  const raw = range/target;
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const m = raw/p;
+  return (m<1.5?1:m<3.5?2:m<7.5?5:10)*p;
+}
+
+function autoY(){
+  let m = Math.max(M.maxVe, Math.abs(M.maxVs), Math.abs(M.minVs));
+  if(P.sat) m = Math.max(m, P.Vsat);
+  return Math.max(m*1.18, 0.1);
+}
+
+function drawScope(cursor){
+  const {ctx,W,H} = fit($("#scope"));
+  const L = 58, R = P.showEps ? 60 : 16, Tp = 10, B = 26;
+  const pw = W-L-R, ph = H-Tp-B;
+  ctx.clearRect(0,0,W,H);
+
+  const hd = ph/NDIVY;                             // hauteur d'une division
+  const Y = v => Tp + ph/2 - (v/P.vDiv + P.vPos)*hd;
+  const X = i => L + i/(NB-1)*pw;
+  const onScreen = y => y >= Tp-0.5 && y <= Tp+ph+0.5;
+
+  ctx.font = "11px system-ui,sans-serif";
+
+  // graticule : NDIVX × NDIVY divisions
+  ctx.strokeStyle = "#1a2931"; ctx.lineWidth = 1;
+  for(let k=1;k<NDIVX;k++){
+    const x = L + k/NDIVX*pw;
+    ctx.beginPath(); ctx.moveTo(x,Tp); ctx.lineTo(x,Tp+ph); ctx.stroke();
+  }
+  for(let k=1;k<NDIVY;k++){
+    const y = Tp + k/NDIVY*ph;
+    ctx.beginPath(); ctx.moveTo(L,y); ctx.lineTo(L+pw,y); ctx.stroke();
+  }
+  ctx.strokeStyle = "#2a3f4a"; ctx.strokeRect(L+.5,Tp+.5,pw-1,ph-1);
+
+  // repères de tension (une division sur deux)
+  ctx.fillStyle = "#5d6f7c"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for(let k=-NDIVY/2;k<=NDIVY/2;k+=2){
+    const v = (k - P.vPos)*P.vDiv;
+    ctx.fillText(Math.abs(v)<1e-12 ? "0" : si(v,"V",1), L-7, Tp+ph/2 - k*hd);
+  }
+  // repères de temps (une division sur deux)
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for(let k=0;k<=NDIVX;k+=2)
+    ctx.fillText(si(k*P.tDiv,"s",k===0?0:1), L + k/NDIVX*pw, Tp+ph+5);
+
+  // axe zéro
+  if(onScreen(Y(0))){
+    ctx.strokeStyle = "#3b4d59"; ctx.beginPath(); ctx.moveTo(L,Y(0)); ctx.lineTo(L+pw,Y(0)); ctx.stroke();
+  }
+
+  // saturations
+  if(P.sat && (onScreen(Y(P.Vsat)) || onScreen(Y(-P.Vsat)))){
+    ctx.strokeStyle = "rgba(224,82,99,.7)"; ctx.setLineDash([6,4]); ctx.lineWidth = 1;
+    for(const s of [1,-1]){ ctx.beginPath(); ctx.moveTo(L,Y(s*P.Vsat)); ctx.lineTo(L+pw,Y(s*P.Vsat)); ctx.stroke(); }
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(224,82,99,.9)"; ctx.textAlign="left"; ctx.textBaseline="bottom";
+    ctx.fillText("+V_sat", L+5, Y(P.Vsat)-2);
+    ctx.textBaseline="top"; ctx.fillText("−V_sat", L+5, Y(-P.Vsat)+2);
+  }
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(L,Tp,pw,ph); ctx.clip();
+
+  const n = cursor;
+
+  // idéal
+  if(P.showIdeal && !P.rInf){
+    ctx.strokeStyle = "rgba(123,138,149,.85)"; ctx.lineWidth = 1.2; ctx.setLineDash([5,4]);
+    ctx.beginPath();
+    for(let i=0;i<n;i++){ const y = Y(buf.ideal[i]); i?ctx.lineTo(X(i),y):ctx.moveTo(X(i),y); }
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  // entrée
+  ctx.strokeStyle = "#4ec8e0"; ctx.lineWidth = 1.6; ctx.beginPath();
+  for(let i=0;i<n;i++){ const y = Y(buf.ve[i]); i?ctx.lineTo(X(i),y):ctx.moveTo(X(i),y); }
+  ctx.stroke();
+
+  // sortie (+ barres min/max)
+  ctx.strokeStyle = "#f5a623"; ctx.lineWidth = 1.9; ctx.beginPath();
+  for(let i=0;i<n;i++){ const y = Y(buf.vs[i]); i?ctx.lineTo(X(i),y):ctx.moveTo(X(i),y); }
+  ctx.stroke();
+  ctx.lineWidth = 1.9; ctx.beginPath();
+  for(let i=0;i<n;i++){
+    const y0 = Y(buf.vsMax[i]), y1 = Y(buf.vsMin[i]);
+    if(y1-y0 > 1.5){ ctx.moveTo(X(i),y0); ctx.lineTo(X(i),y1); }
+  }
+  ctx.stroke();
+
+  // epsilon (axe droit)
+  if(P.showEps){
+    const em = Math.max(M.epsWin*1.25, 1e-7);
+    ctx.strokeStyle = "#8ad06a"; ctx.lineWidth = 1.4; ctx.beginPath();
+    for(let i=0;i<n;i++){
+      const y = Tp + ph/2 - buf.eps[i]/em*(ph/2);
+      i?ctx.lineTo(X(i),y):ctx.moveTo(X(i),y);
+    }
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = "#8ad06a"; ctx.textAlign="left"; ctx.textBaseline="middle"; ctx.font="11px system-ui,sans-serif";
+    ctx.fillText(si(em,"V",1), L+pw+6, Tp+2);
+    ctx.fillText("0", L+pw+6, Tp+ph/2);
+    ctx.fillText("−"+si(em,"V",1), L+pw+6, Tp+ph-2);
+    ctx.save(); ctx.beginPath(); ctx.rect(L,Tp,pw,ph); ctx.clip();
+  }
+
+  // curseur
+  if(n < NB){
+    const x = X(Math.max(0,n-1));
+    ctx.strokeStyle = "rgba(221,230,236,.35)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x,Tp); ctx.lineTo(x,Tp+ph); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawXY(cursor){
+  const {ctx,W,H} = fit($("#xy"));
+  const L = 46, R = 12, Tp = 12, B = 26;
+  const pw = W-L-R, ph = H-Tp-B;
+  ctx.clearRect(0,0,W,H);
+
+  const xm = Math.max(M.maxVe*1.15, 1e-3), ym = autoY();
+  const X = v => L + pw/2 + v/xm*(pw/2);
+  const Y = v => Tp + ph/2 - v/ym*(ph/2);
+
+  ctx.strokeStyle = "#1e2f38"; ctx.lineWidth = 1;
+  for(let k=1;k<8;k++){
+    const x = L+k/8*pw, y = Tp+k/8*ph;
+    ctx.beginPath(); ctx.moveTo(x,Tp); ctx.lineTo(x,Tp+ph); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(L,y); ctx.lineTo(L+pw,y); ctx.stroke();
+  }
+  ctx.strokeStyle = "#3b4d59";
+  ctx.beginPath(); ctx.moveTo(L,Y(0)); ctx.lineTo(L+pw,Y(0)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(X(0),Tp); ctx.lineTo(X(0),Tp+ph); ctx.stroke();
+
+  ctx.fillStyle = "#5d6f7c"; ctx.font = "11px system-ui,sans-serif";
+  ctx.textAlign = "right"; ctx.textBaseline = "top";
+  ctx.fillText("v_e  ("+si(xm,"V",1)+" pleine échelle)", L+pw, Tp+ph+5);
+  ctx.save(); ctx.translate(13, Tp+ph/2); ctx.rotate(-Math.PI/2);
+  ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText("v_s (V)",0,0); ctx.restore();
+
+  ctx.save(); ctx.beginPath(); ctx.rect(L,Tp,pw,ph); ctx.clip();
+
+  if(P.sat && P.Vsat <= ym){
+    ctx.strokeStyle = "rgba(224,82,99,.55)"; ctx.setLineDash([5,4]);
+    for(const s of [1,-1]){ ctx.beginPath(); ctx.moveTo(L,Y(s*P.Vsat)); ctx.lineTo(L+pw,Y(s*P.Vsat)); ctx.stroke(); }
+    ctx.setLineDash([]);
+  }
+  if(!P.rInf){
+    ctx.strokeStyle = "rgba(123,138,149,.8)"; ctx.setLineDash([5,4]); ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(X(-xm), Y(M.Gid*(-xm))); ctx.lineTo(X(xm), Y(M.Gid*xm)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // trace complète en rémanence + portion vive
+  ctx.lineWidth = 1.4;
+  ctx.strokeStyle = "rgba(245,166,35,.18)"; ctx.beginPath();
+  for(let i=0;i<NB;i++){ const x=X(buf.ve[i]), y=Y(buf.vs[i]); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+  ctx.stroke();
+  ctx.strokeStyle = "#f5a623"; ctx.lineWidth = 1.8; ctx.beginPath();
+  for(let i=0;i<cursor;i++){ const x=X(buf.ve[i]), y=Y(buf.vs[i]); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+  ctx.stroke();
+
+  const c = clamp(cursor-1, 0, NB-1);
+  ctx.fillStyle = "#fff8e8";
+  ctx.beginPath(); ctx.arc(X(buf.ve[c]), Y(buf.vs[c]), 3.4, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+/* ============================== lecture ============================== */
+function fmtDeg(d){ let x = d; while(x>180)x-=360; while(x<-180)x+=360; return x.toFixed(1)+" °"; }
+
+function updateReadout(){
+  const rows = [];
+  rows.push(["Gain idéal −R₂/R₁", P.rInf ? "∞ (boucle ouverte)" : "−"+(P.R2/P.R1).toFixed(3).replace(/\.?0+$/,"")]);
+  if(P.lp){
+    rows.push(["Gain statique réel", P.rInf ? (-M.Gcl).toExponential(2).replace("e+","·10^") : M.Gcl.toFixed(3).replace(/\.?0+$/,"")]);
+    rows.push(["Bande passante en BF", si(M.fCl,"Hz",2)]);
+    rows.push(["Produit gain·bande", si(M.gbw,"Hz",2)]);
+    rows.push(["τ en boucle fermée", si(M.tauCl,"s",2)]);
+  }
+  rows.push(["—","—"]);
+  rows.push(["Amplitude fondamentale v<sub>s</sub>", si(M.A1,"V",3)]);
+  rows.push(["Gain mesuré |v<sub>s</sub>|/|v<sub>e</sub>|", isFinite(M.gainMes) ? M.gainMes.toFixed(3).replace(/\.?0+$/,"")+"  ("+(20*Math.log10(Math.max(M.gainMes,1e-9))).toFixed(1)+" dB)" : "—"]);
+  rows.push(["Déphasage v<sub>s</sub>/v<sub>e</sub>", fmtDeg(M.phi)]);
+  rows.push(["Composante continue de v<sub>s</sub>", si(M.dc,"V",3)]);
+  rows.push(["Taux de distorsion", (100*M.thd).toFixed(1)+" %"]);
+  rows.push(["—","—"]);
+  rows.push(["Pente max de v<sub>s</sub>", si(M.maxSlope/1e6,"V/µs",3)]);
+  rows.push(["Pente requise 2πf·V<sub>s</sub>", si(M.needSlope/1e6,"V/µs",3)]);
+  rows.push(["|ε| maximal", si(M.maxAbsEps,"V",2)]);
+  rows.push(["—","—"]);
+  rows.push(["Calibres", si(P.vDiv,"V",1)+"/div · "+si(P.tDiv,"s",1)+"/div"]);
+  rows.push(["Fenêtre affichée", si(M.Twin,"s",2)+"  ("+(M.Twin/M.T).toFixed(2).replace(/\.?0+$/,"")+" période"+(M.Twin/M.T>=2?"s":"")+")"]);
+
+  $("#meas").innerHTML = rows.map(([k,v]) =>
+    k==="—" ? '<dt style="grid-column:1/-1"><hr></dt>' : "<dt>"+k+"</dt><dd>"+v+"</dd>"
+  ).join("");
+
+  // diagnostics
+  const F = [];
+  if(P.sat && M.satFrac > 0.002)
+    F.push(["on","Écrêtage",
+      "v<sub>s</sub> bute sur ±V<sub>sat</sub> pendant "+(100*M.satFrac).toFixed(0)+" % de la période : sommets rasés, ε n'est plus nul."]);
+  if(P.sr && M.srFrac > 0.002)
+    F.push(["on","Limitation par le slew-rate",
+      "La pente demandée ("+si(M.needSlope/1e6,"V/µs",2)+") dépasse σ = "+P.SR+" V/µs sur "+(100*M.srFrac).toFixed(0)+" % de la période : les flancs deviennent des rampes rectilignes."]);
+  else if(P.sr && M.needSlope > 0.6*P.SR*1e6)
+    F.push(["warn","Slew-rate proche de la limite",
+      "Pente requise "+si(M.needSlope/1e6,"V/µs",2)+" pour σ = "+P.SR+" V/µs. Augmentez f ou V<sub>e</sub> pour déclencher la limitation."]);
+  if(P.lp && !P.rInf){
+    const r = P.f/M.fCl;
+    if(r > 0.25)
+      F.push([r>0.7?"on":"warn","Filtrage passe-bas du 1<sup>er</sup> ordre",
+        "f/f<sub>c,BF</sub> = "+r.toFixed(2)+" : le gain chute de "+(20*Math.log10(1/Math.sqrt(1+r*r))).toFixed(1)+
+        " dB et le déphasage s'écarte de 180° de "+(Math.atan(r)*180/Math.PI).toFixed(0)+"°."]);
+  }
+  if(P.rInf)
+    F.push(["on","Boucle ouverte",
+      "Sans R₂, ε = −v<sub>e</sub> et le gain μ₀ énorme fait basculer la sortie entre ±V<sub>sat</sub> : c'est un comparateur à zéro."]);
+  if(!F.length)
+    F.push(["","Fonctionnement linéaire","Aucune limitation n'intervient : v<sub>s</sub> ≈ −(R₂/R₁)·v<sub>e</sub>, la masse virtuelle tient (|ε| ≤ "+si(M.maxAbsEps,"V",1)+")."]);
+
+  $("#flags").innerHTML = F.map(([c,t,d]) =>
+    '<div class="flag '+c+'"><div><b>'+t+"</b>"+d+"</div></div>").join("");
+
+  $("#schInfo").innerHTML = P.rInf
+    ? "R₁ = "+si(P.R1,"Ω",1)+" · R₂ = ∞"
+    : "R₁ = "+si(P.R1,"Ω",1)+" · R₂ = "+si(P.R2,"Ω",1)+" · |G| = "+(P.R2/P.R1).toFixed(2).replace(/\.?0+$/,"");
+  $("#lblR1").textContent = si(P.R1,"Ω",1);
+  $("#lblR2").textContent = P.rInf ? "R₂ → ∞" : si(P.R2,"Ω",1);
+  const op = P.rInf ? 0.18 : 1;
+  $("#fbL").style.opacity = op; $("#fbR").style.opacity = op;
+  $("#fbBox").style.opacity = op; $("#lblR2").style.opacity = P.rInf ? 0.55 : 1;
+  $("#fbBox").setAttribute("stroke-dasharray", P.rInf ? "3 3" : "");
+}
+
+/* ============================== animation ============================== */
+let cursor = NB, playing = true, last = 0, speed = 0.5;
+
+function loop(ts){
+  if(!last) last = ts;
+  const dtms = Math.min(ts-last, 100); last = ts;
+  if(playing){
+    const sweep = 0.6*Math.pow(12/0.6, 1-speed);      // durée du balayage en s
+    cursor += NB*dtms/1000/sweep;
+    if(cursor >= NB) cursor = 0;
+  }
+  const c = Math.max(2, Math.min(NB, Math.round(cursor)));
+  drawScope(c); drawXY(c);
+  requestAnimationFrame(loop);
+}
+
+/* ============================== câblage IHM ============================== */
+function refreshLabels(){
+  $("#vVe").textContent  = si(P.Ve,"V",3);
+  $("#vF").textContent   = si(P.f,"Hz",2);
+  $("#vOff").textContent = si(P.U0,"V",2);
+  $("#vR1").textContent  = si(P.R1,"Ω",1);
+  $("#vR2").textContent  = P.rInf ? "∞" : si(P.R2,"Ω",1);
+  $("#vVsat").textContent= "± "+P.Vsat.toFixed(1)+" V";
+  $("#vSr").textContent  = P.SR.toFixed(P.SR<1?3:2).replace(/\.?0+$/,"")+" V/µs";
+  $("#vMu").textContent  = P.mu0.toExponential(1).replace("e+","·10^");
+  $("#vFc").textContent  = si(P.fc,"Hz",2);
+  $("#vVdiv").textContent= si(P.vDiv,"V",1)+"/div";
+  $("#vTdiv").textContent= si(P.tDiv,"s",1)+"/div";
+  $("#vVpos").textContent= (P.vPos>0?"+":"")+P.vPos.toFixed(1)+" div";
+  $("#sVpos").value = P.vPos;
+  $("#sVdiv").disabled = P.autoCal;
+  $("#sTdiv").disabled = P.autoCal;
+  $("#sVdiv").min = VCAL.indexOf(M.vLo); $("#sVdiv").max = VCAL.indexOf(M.vHi);
+  $("#sTdiv").min = TCAL.indexOf(M.tLo); $("#sTdiv").max = TCAL.indexOf(M.tHi);
+  $("#sVdiv").value = VCAL.indexOf(nearestCal(VCAL,P.vDiv));
+  $("#sTdiv").value = TCAL.indexOf(nearestCal(TCAL,P.tDiv));
+  $("#sOff").disabled = !P.dc;
+  $("#sR2").disabled = P.rInf;
+  $("#sVsat").disabled = !P.sat;
+  $("#sSr").disabled = !P.sr;
+  $("#sMu").disabled = !P.lp;
+  $("#sFc").disabled = !P.lp;
+  $("#legIdeal").hidden = !P.showIdeal || P.rInf;
+  $("#legEps").hidden = !P.showEps;
+}
+
+function recompute(){ simulate(); refreshLabels(); updateReadout(); }
+
+function bindLog(id, key, min, max, snap){
+  const el = $(id);
+  el.addEventListener("input", () => {
+    let v = logMap(+el.value, min, max);
+    if(snap) v = snapE12(v);
+    P[key] = v; recompute();
+  });
+  return () => { el.value = logInv(clamp(P[key],min,max), min, max); };
+}
+
+const sync = [];
+sync.push(bindLog("#sVe","Ve",RG.Ve[0],RG.Ve[1]));
+sync.push(bindLog("#sF","f",RG.f[0],RG.f[1]));
+sync.push(bindLog("#sR1","R1",RG.R1[0],RG.R1[1],true));
+sync.push(bindLog("#sR2","R2",RG.R2[0],RG.R2[1],true));
+sync.push(bindLog("#sSr","SR",RG.SR[0],RG.SR[1]));
+sync.push(bindLog("#sMu","mu0",RG.mu0[0],RG.mu0[1]));
+sync.push(bindLog("#sFc","fc",RG.fc[0],RG.fc[1]));
+
+$("#sOff").addEventListener("input", e => { P.U0 = +e.target.value/1000*5; recompute(); });
+sync.push(() => { $("#sOff").value = P.U0/5*1000; });
+$("#sVsat").addEventListener("input", e => { P.Vsat = +e.target.value; recompute(); });
+sync.push(() => { $("#sVsat").value = P.Vsat; });
+
+$("#sVdiv").addEventListener("input", e => { P.vDiv = VCAL[+e.target.value]; recompute(); });
+$("#sTdiv").addEventListener("input", e => { P.tDiv = TCAL[+e.target.value]; recompute(); });
+$("#sVpos").addEventListener("input", e => { P.vPos = +e.target.value; refreshLabels(); });
+
+const checks = [["#cAuto","autoCal"],["#cDc","dc"],["#cRinf","rInf"],["#cSat","sat"],["#cSr","sr"],["#cLp","lp"],
+                ["#cIdeal","showIdeal"],["#cEps","showEps"],["#cTrans","transient"]];
+for(const [id,key] of checks){
+  $(id).addEventListener("change", e => { P[key] = e.target.checked; recompute(); });
+  sync.push(() => { $(id).checked = P[key]; });
+}
+
+function syncAll(){ for(const f of sync) f(); }
+
+$("#btnPlay").addEventListener("click", () => {
+  playing = !playing;
+  $("#btnPlay").textContent = playing ? "Pause" : "Lecture";
+});
+$("#sSpeed").addEventListener("input", e => { speed = +e.target.value/100; });
+
+/* ---------- situations types ---------- */
+const PRESETS = [
+  ["ALI idéal", {Ve:1,f:1000,R1:1000,R2:10000,rInf:false,dc:false,sat:false,sr:false,lp:false}],
+  ["Écrêtage", {Ve:2,f:1000,R1:1000,R2:10000,rInf:false,dc:false,sat:true,sr:true,lp:true,Vsat:14,SR:0.5}],
+  ["Slew-rate", {Ve:1,f:30000,R1:1000,R2:10000,rInf:false,dc:false,sat:true,sr:true,lp:true,Vsat:14,SR:0.5}],
+  ["Passe-bas", {Ve:0.02,f:10000,R1:1000,R2:100000,rInf:false,dc:false,sat:true,sr:true,lp:true,mu0:2e5,fc:5}],
+  ["Offset continu", {Ve:1,f:1000,R1:1000,R2:10000,rInf:false,dc:true,U0:1,sat:true,sr:true,lp:true,Vsat:14}],
+  ["Comparateur", {Ve:1,f:1000,R1:1000,rInf:true,dc:false,sat:true,sr:true,lp:true,Vsat:14,SR:0.5}]
+];
+$("#presets").innerHTML = PRESETS.map((p,i)=>'<button data-i="'+i+'">'+p[0]+"</button>").join("");
+$("#presets").addEventListener("click", e => {
+  const b = e.target.closest("button"); if(!b) return;
+  Object.assign(P, {mu0:2e5, fc:5, Vsat:14, SR:0.5, showIdeal:true, autoCal:true, vPos:0}, PRESETS[+b.dataset.i][1]);
+  syncAll(); recompute(); cursor = 0;
+});
+
+window.addEventListener("resize", () => { drawScope(Math.round(cursor)||NB); drawXY(Math.round(cursor)||NB); });
+
+syncAll(); recompute();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

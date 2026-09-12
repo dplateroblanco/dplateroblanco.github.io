@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Filtrage d'un signal périodique — Bode, spectre et déformation</title>
+<style>
+:root{
+  --page:#e7ecef;
+  --panel:#ffffff;
+  --ink:#122733;
+  --ink-soft:#4d6472;
+  --rule:#c8d4dc;
+  --grid:#e2e9ee;
+  --grid2:#eef3f6;
+  --curve:#122733;     /* réponse du filtre */
+  --in:#9fb8c9;        /* spectre / signal d'entrée */
+  --out:#0d6b63;       /* spectre / signal de sortie */
+  --blue:#12489e;
+  --rust:#b2551a;
+  --moss:#4f7a5c;
+  --plum:#8a3b5e;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--page);color:var(--ink);
+  font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  padding:20px 20px 40px;
+}
+.wrap{max-width:1400px;margin:0 auto}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:16px;margin-bottom:14px}
+h1{font-family:Charter,"Bitstream Charter",Cambria,Georgia,serif;font-size:27px;font-weight:600;margin:0;letter-spacing:-.01em}
+header p{margin:0;color:var(--ink-soft);font-size:14.5px;max-width:64ch}
+
+.panel{background:var(--panel);border:1px solid var(--rule);padding:14px 16px}
+.controls{display:flex;flex-wrap:wrap;gap:20px 26px;align-items:flex-end}
+.field{display:flex;flex-direction:column;gap:6px}
+.field > span{font-size:12.5px;color:var(--ink-soft)}
+.seg{display:flex;border:1px solid var(--rule);flex-wrap:wrap}
+.seg button{font:inherit;font-size:13.5px;background:var(--panel);color:var(--ink);border:0;border-right:1px solid var(--rule);padding:7px 12px;cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button:hover{background:#f0f4f6}
+.seg button[aria-pressed="true"]{background:var(--ink);color:#fff}
+.seg button:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+input[type=range]{accent-color:var(--blue)}
+.slide{display:flex;align-items:center;gap:11px}
+.slide output{font-family:Charter,"Bitstream Charter",Cambria,Georgia,serif;font-size:19px;min-width:5.4em;text-align:right;font-variant-numeric:tabular-nums}
+.btn{font:inherit;font-size:14px;padding:7px 13px;cursor:pointer;background:var(--panel);border:1px solid var(--rule);color:var(--ink)}
+.btn:hover{background:#f0f4f6}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.primary:hover{background:#0d3a80}
+.btn:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.checks{display:flex;flex-direction:column;gap:5px;font-size:14px}
+.checks label{display:flex;gap:7px;align-items:center;cursor:pointer}
+
+.cols{display:grid;grid-template-columns:1.12fr 1fr;gap:12px;margin-top:12px;align-items:start}
+.cwrap{position:relative}
+canvas{display:block;width:100%}
+#cGain{height:306px}
+#cPhase{height:206px}
+#cTime{height:290px}
+.head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px}
+.head h2{font-family:Charter,"Bitstream Charter",Cambria,Georgia,serif;font-size:16.5px;margin:0;font-weight:600}
+.head .sub{font-size:12.5px;color:var(--ink-soft)}
+
+.regime{border-left:5px solid var(--rule);padding:9px 13px;margin-bottom:11px;background:#f7fafb}
+.regime b{display:block;font-family:Charter,"Bitstream Charter",Cambria,Georgia,serif;font-size:18px;font-weight:600}
+.regime span{font-size:13.5px;color:var(--ink-soft)}
+
+.stats{display:flex;flex-wrap:wrap;margin-top:11px;border-top:1px solid var(--rule);padding-top:10px}
+.stat{padding:0 20px;border-left:1px solid var(--rule)}
+.stat:first-child{padding-left:0;border-left:0}
+.stat b{display:block;font-family:Charter,"Bitstream Charter",Cambria,Georgia,serif;font-size:19px;font-weight:600;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;color:var(--ink-soft)}
+
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--ink-soft);margin-top:8px}
+.legend i{display:inline-block;width:16px;height:3px;vertical-align:middle;margin-right:6px}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;font-size:12.5px;line-height:1.5;padding:6px 9px;white-space:nowrap;opacity:0;z-index:5}
+.tip.on{opacity:1}
+.hint{font-size:12.5px;color:var(--ink-soft);margin:9px 0 0}
+footer{margin-top:14px;font-size:12.5px;color:var(--ink-soft)}
+@media (max-width:1080px){.cols{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Filtrage d'un signal périodique</h1>
+  <p>Le signal d'entrée est reconstruit avec ses dix premières harmoniques non nulles. Faites glisser la fréquence du fondamental de f₀/100 à 100 f₀ : les raies traversent le diagramme de Bode et la forme d'onde de sortie change de nature.</p>
+</header>
+
+<div class="panel">
+  <div class="controls">
+    <div class="field">
+      <span>Signal d'entrée</span>
+      <div class="seg" id="segSig">
+        <button data-sig="carre" aria-pressed="true">Créneau</button>
+        <button data-sig="triangle" aria-pressed="false">Triangle</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <span>Composante continue U₀</span>
+      <div class="slide"><input type="range" id="rDC" min="-1" max="1" step="0.05" value="0" style="width:150px"><output id="oDC">0,00</output></div>
+    </div>
+
+    <div class="field">
+      <span>Filtre</span>
+      <div class="seg" id="segFil">
+        <button data-f="pb1" aria-pressed="true">Passe-bas 1</button>
+        <button data-f="ph1" aria-pressed="false">Passe-haut 1</button>
+        <button data-f="pt1" aria-pressed="false">Passe-tout</button>
+        <button data-f="pb2" aria-pressed="false">Passe-bas 2</button>
+        <button data-f="ph2" aria-pressed="false">Passe-haut 2</button>
+        <button data-f="bp2" aria-pressed="false">Passe-bande</button>
+        <button data-f="cb2" aria-pressed="false">Coupe-bande</button>
+      </div>
+    </div>
+
+    <div class="field" id="fQ" hidden>
+      <span>Facteur de qualité Q</span>
+      <div class="slide"><input type="range" id="rQ" min="0.2" max="10" step="0.05" value="1" style="width:140px"><output id="oQ">1,00</output></div>
+    </div>
+
+    <div class="field" style="flex:1 1 320px">
+      <span>Fréquence du fondamental f₁</span>
+      <div class="slide">
+        <input type="range" id="rF" min="0" max="1000" step="1" value="500" style="flex:1;min-width:200px">
+        <output id="oF">f₁ = f₀</output>
+      </div>
+    </div>
+
+    <div class="field">
+      <span>Balayage</span>
+      <div style="display:flex;gap:8px">
+        <button class="btn primary" id="bPlay">Balayer f₁</button>
+        <button class="btn" id="bPng">PNG</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <span>Échelle de la sortie</span>
+      <div class="seg" id="segAmp">
+        <button data-amp="0" aria-pressed="true">Réelle</button>
+        <button data-amp="1" aria-pressed="false">Ondulation amplifiée</button>
+      </div>
+    </div>
+
+    <div class="field checks">
+      <label><input type="checkbox" id="kBode" checked> Tracé asymptotique de Bode</label>
+      <label><input type="checkbox" id="kAsym"> Modèle intégrateur/dérivateur</label>
+      <label><input type="checkbox" id="kZones" checked> Bandeau des régimes</label>
+    </div>
+  </div>
+</div>
+
+<div class="cols">
+  <div>
+    <div class="panel">
+      <div class="head">
+        <h2>Gain</h2>
+        <span class="sub">échelle logarithmique en f/f₀, raies du signal superposées</span>
+      </div>
+      <div class="cwrap"><canvas id="cGain"></canvas><div class="tip" id="tipG"></div></div>
+      <div class="legend">
+        <span><i style="background:var(--curve)"></i>gain réel</span>
+        <span><i style="background:var(--rust)"></i>tracé asymptotique</span>
+        <span><i style="background:var(--in);height:7px"></i>raies d'entrée</span>
+        <span><i style="background:var(--out);height:7px"></i>raies de sortie</span>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <div class="head">
+        <h2>Phase</h2>
+        <span class="sub">déphasage réel, tracé asymptotique et phase des raies de sortie</span>
+      </div>
+      <div class="cwrap"><canvas id="cPhase"></canvas></div>
+      <p class="hint">Une forme d'onde n'est conservée que si toutes les raies subissent le même gain et un déphasage nul ou proportionnel à la fréquence.</p>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <div class="regime" id="regime"><b>—</b><span></span></div>
+      <div class="head">
+        <h2>Signaux dans le temps</h2>
+        <span class="sub" id="scaleNote"></span>
+      </div>
+      <div class="cwrap"><canvas id="cTime"></canvas></div>
+      <div class="legend">
+        <span><i style="background:var(--in)"></i>entrée (10 harmoniques)</span>
+        <span><i style="background:var(--out)"></i>sortie</span>
+        <span id="legAsym" hidden><i style="background:var(--rust)"></i>modèle intégrateur/dérivateur</span>
+      </div>
+      <div class="stats">
+        <div class="stat"><b id="sRatio">1</b><span>f₁ / f₀</span></div>
+        <div class="stat"><b id="sG">—</b><span>gain sur le fondamental</span></div>
+        <div class="stat"><b id="sPh">—</b><span>déphasage du fondamental</span></div>
+        <div class="stat"><b id="sDC">—</b><span>continu entrée → sortie</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>Flèches ← → : déplacer f₁ d'un pas. Barre d'espace : lancer ou arrêter le balayage. Survol du diagramme de gain : valeurs de la raie la plus proche.</footer>
+</div>
+
+<script>
+"use strict";
+const PI = Math.PI, TAU = 2*PI, D = 180/PI;
+const fmt = (x,d) => x.toFixed(d).replace(".", ",");
+const css = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+
+/* ---------------- complexes ---------------- */
+const cdiv = (a,b) => { const d = b[0]*b[0]+b[1]*b[1];
+  return [(a[0]*b[0]+a[1]*b[1])/d, (a[1]*b[0]-a[0]*b[1])/d]; };
+const cabs = a => Math.hypot(a[0],a[1]);
+const carg = a => (a[0]===0 && a[1]===0) ? 0 : Math.atan2(a[1],a[0]);
+
+/* ---------------- filtres : x = f/f0 ---------------- */
+const FILTERS = {
+  pb1:{label:"Passe-bas du 1er ordre", H:x=>cdiv([1,0],[1,x]),       expr:"H = 1 / (1 + j x)", q:false},
+  ph1:{label:"Passe-haut du 1er ordre", H:x=>cdiv([0,x],[1,x]),      expr:"H = j x / (1 + j x)", q:false},
+  pt1:{label:"Déphaseur passe-tout", H:x=>cdiv([1,-x],[1,x]),        expr:"H = (1 − j x) / (1 + j x)", q:false},
+  pb2:{label:"Passe-bas du 2e ordre", H:(x,Q)=>cdiv([1,0],[1-x*x,x/Q]),        expr:"H = 1 / (1 − x² + j x/Q)", q:true},
+  ph2:{label:"Passe-haut du 2e ordre", H:(x,Q)=>cdiv([-x*x,0],[1-x*x,x/Q]),    expr:"H = −x² / (1 − x² + j x/Q)", q:true},
+  bp2:{label:"Passe-bande du 2e ordre", H:(x,Q)=>cdiv([0,x/Q],[1-x*x,x/Q]),    expr:"H = (j x/Q) / (1 − x² + j x/Q)", q:true},
+  cb2:{label:"Coupe-bande du 2e ordre", H:(x,Q)=>cdiv([1-x*x,0],[1-x*x,x/Q]),  expr:"H = (1 − x²) / (1 − x² + j x/Q)", q:true}
+};
+
+/* ------------- signaux : 10 harmoniques non nulles ------------- */
+const SIGNALS = {
+  carre:{label:"créneau", ranks:[1,3,5,7,9,11,13,15,17,19],
+         A:n=>4/(PI*n), phi:n=>-PI/2,
+         intName:"triangle", derName:"impulsions alternées"},
+  triangle:{label:"triangle", ranks:[1,3,5,7,9,11,13,15,17,19],
+         A:n=>8/(PI*PI*n*n), phi:n=>(((n-1)/2)%2===0 ? -PI/2 : PI/2),
+         intName:"arcs de parabole", derName:"créneau"}
+};
+
+/* ---- tracés asymptotiques (gain en dB, phase en degrés) ---- */
+const ASYM = {
+  pb1:{g:x => x<=1 ? 0 : -20*Math.log10(x),            p:x => x<1 ? 0 : -90},
+  ph1:{g:x => x<=1 ? 20*Math.log10(x) : 0,             p:x => x<1 ? 90 : 0},
+  pt1:{g:() => 0,                                      p:x => x<1 ? 0 : -180},
+  pb2:{g:x => x<=1 ? 0 : -40*Math.log10(x),            p:x => x<1 ? 0 : -180},
+  ph2:{g:x => x<=1 ? 40*Math.log10(x) : 0,             p:x => x<1 ? 180 : 0},
+  bp2:{g:(x,Q) => (x<=1 ? 20*Math.log10(x) : -20*Math.log10(x)) - 20*Math.log10(Q),
+       p:x => x<1 ? 90 : -90},
+  cb2:{g:() => 0,                                      p:() => 0}
+};
+
+const state = {sig:"carre", dc:0, fil:"pb1", Q:1, r:1,
+  amp:false, bode:true, asym:false, zones:true, playing:false, raf:null, t0:0};
+
+const H = x => {
+  const F = FILTERS[state.fil];
+  return F.H(x, state.Q);
+};
+
+function spectrum(){
+  const S = SIGNALS[state.sig], out = [];
+  for (const n of S.ranks){
+    const x = n*state.r, h = H(x);
+    const g = cabs(h), a = S.A(n);
+    out.push({n, x, Ain:a, phiIn:S.phi(n), g, hph:carg(h), Aout:a*g, phiOut:S.phi(n)+carg(h)});
+  }
+  const h0 = H(1e-9);
+  return {list:out, dcIn:state.dc, dcOut:state.dc*h0[0]};
+}
+
+/* --------- régime : pente et déphasage vus par le spectre --------- */
+const gdB = t => 20*Math.log10(Math.max(cabs(H(t)), 1e-300));
+function categorie(x){
+  const a = Math.pow(10, Math.log10(x)-0.03), b = Math.pow(10, Math.log10(x)+0.03);
+  const ga = gdB(a), gb = gdB(b), gx = gdB(x);
+  const s = (gb-ga)/0.06, m = Math.round(s/20);
+  if (Math.abs(s - 20*m) > 4 || Math.abs(m) > 2) return {k:"trans", m:null};
+  if (Math.abs(gx - (ga+gb)/2) > 3) return {k:"trans", m:null};   // pic ou creux local
+  let d = (carg(H(x))*D - 90*m) % 360;
+  if (d > 180) d -= 360; if (d < -180) d += 360;
+  const ok = Math.abs(d) < 25 || Math.abs(Math.abs(d)-180) < 25;
+  if (!ok) return {k:"trans", m:null};
+  return {k:({"-2":"int2","-1":"int","0":"plat","1":"der","2":"der2"})[String(m)], m};
+}
+const CATS = {
+  plat:{c:"#4f7a5c", nom:"Transmission sans déformation"},
+  int: {c:"#12489e", nom:"Intégrateur"},
+  int2:{c:"#0b2f6b", nom:"Double intégrateur"},
+  der: {c:"#b2551a", nom:"Dérivateur"},
+  der2:{c:"#7a3a10", nom:"Double dérivateur"},
+  trans:{c:"#9fb0bb", nom:"Zone de transition"}
+};
+
+function regime(){
+  const S = SIGNALS[state.sig];
+  const c0 = categorie(state.r);
+  if (c0.k === "trans") return {...CATS.trans, k:"trans", m:null};
+  for (const n of S.ranks)
+    if (categorie(n*state.r).k !== c0.k) return {...CATS.trans, k:"trans", m:null};
+  return {...CATS[c0.k], k:c0.k, m:c0.m};
+}
+
+/* ---------------- canevas ---------------- */
+function prep(cv){
+  const dpr = window.devicePixelRatio||1, r = cv.getBoundingClientRect();
+  cv.width = Math.max(1,Math.round(r.width*dpr)); cv.height = Math.max(1,Math.round(r.height*dpr));
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle = "#fff"; ctx.fillRect(0,0,r.width,r.height);
+  return {ctx, w:r.width, h:r.height};
+}
+const LX0 = -3, LX1 = 3.5;          // décades affichées en f/f0
+const M = {l:52, r:14, t:14, b:30};
+const XX = (w, lx) => M.l + (w-M.l-M.r)*(lx-LX0)/(LX1-LX0);
+
+function decades(ctx, w, h, top, bot){
+  ctx.lineWidth = 1;
+  for (let d = Math.ceil(LX0); d <= LX1; d++){
+    for (let k = 1; k <= 9; k++){
+      const lx = d + Math.log10(k); if (lx < LX0 || lx > LX1) continue;
+      const x = Math.round(XX(w,lx))+.5;
+      ctx.strokeStyle = (k===1) ? css("--grid") : css("--grid2");
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bot); ctx.stroke();
+    }
+  }
+  ctx.fillStyle = css("--ink-soft"); ctx.font = "12px system-ui,sans-serif";
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (let d = Math.ceil(LX0); d <= LX1; d++){
+    const lab = d===0 ? "f₀" : (d===1 ? "10 f₀" : (d===-1 ? "f₀/10" : "10" + sup(d) + " f₀"));
+    ctx.fillText(lab, XX(w,d), bot+6);
+  }
+}
+function sup(n){
+  const m = {"-":"⁻","0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷","8":"⁸","9":"⁹"};
+  return String(n).split("").map(c=>m[c]).join("");
+}
+
+const GMIN = -100, GMAX = 20;
+function drawGain(){
+  const cv = document.getElementById("cGain");
+  const {ctx,w,h} = prep(cv);
+  const ph = h-M.t-M.b, top = M.t, bot = M.t+ph;
+  const Y = g => top + ph*(GMAX-g)/(GMAX-GMIN);
+  decades(ctx,w,h,top,bot);
+  ctx.strokeStyle = css("--grid"); ctx.fillStyle = css("--ink-soft");
+  ctx.textAlign = "right"; ctx.textBaseline = "middle"; ctx.font = "12px system-ui,sans-serif";
+  for (let g = GMAX; g >= GMIN; g -= 20){
+    const y = Math.round(Y(g))+.5;
+    ctx.beginPath(); ctx.moveTo(M.l,y); ctx.lineTo(w-M.r,y); ctx.stroke();
+    ctx.fillText(g+" dB", M.l-8, y);
+  }
+
+  // bandeau des régimes
+  if (state.zones){
+    const hb = 9;
+    for (let px = M.l; px < w-M.r; px++){
+      const lx = LX0 + (LX1-LX0)*(px-M.l)/(w-M.l-M.r);
+      const c = categorie(Math.pow(10,lx));
+      ctx.fillStyle = CATS[c.k].c + (c.k==="trans" ? "44" : "66");
+      ctx.fillRect(px, top, 1, hb);
+    }
+    ctx.strokeStyle = css("--rule"); ctx.lineWidth = 1;
+    ctx.strokeRect(M.l+.5, top+.5, w-M.r-M.l-1, hb-1);
+  }
+
+  // raies du signal
+  const sp = spectrum();
+  const A1 = sp.list[0].Ain;
+  for (const c of sp.list){
+    if (c.x < Math.pow(10,LX0) || c.x > Math.pow(10,LX1)) continue;
+    const x = XX(w, Math.log10(c.x));
+    const din = 20*Math.log10(c.Ain/A1);
+    const dout = din + 20*Math.log10(Math.max(c.g,1e-300));
+    ctx.globalAlpha = .55;
+    ctx.strokeStyle = css("--in"); ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(x, Math.max(Y(din),top)); ctx.lineTo(x, bot); ctx.stroke();
+    if (dout > GMIN){
+      ctx.strokeStyle = css("--out"); ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(x, Math.max(Y(dout),top)); ctx.lineTo(x, bot); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = css("--in");
+    ctx.beginPath(); ctx.arc(x, Math.max(Y(din),top), 3, 0, TAU); ctx.fill();
+    if (dout > GMIN){
+      ctx.fillStyle = css("--out");
+      ctx.beginPath(); ctx.arc(x, Math.max(Y(dout),top), 2.6, 0, TAU); ctx.fill();
+    }
+  }
+  // repère du fondamental
+  const xf = XX(w, Math.log10(state.r));
+  ctx.save(); ctx.setLineDash([3,3]); ctx.strokeStyle = "#7d8f9b"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(xf, top); ctx.lineTo(xf, bot); ctx.stroke(); ctx.restore();
+  ctx.fillStyle = "#5d707c"; ctx.font = "12px system-ui,sans-serif";
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.fillText("f₁", xf+4, top+12);
+
+  // tracé asymptotique
+  const A = ASYM[state.fil];
+  if (state.bode){
+    ctx.save(); ctx.beginPath(); ctx.rect(M.l,top,w-M.r-M.l,ph); ctx.clip();
+    ctx.setLineDash([7,5]); ctx.strokeStyle = css("--rust"); ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    for (let px = M.l; px <= w-M.r; px += 1){
+      const lx = LX0 + (LX1-LX0)*(px-M.l)/(w-M.l-M.r);
+      const y = Y(Math.max(Math.min(A.g(Math.pow(10,lx), state.Q), GMAX+5), GMIN-5));
+      px === M.l ? ctx.moveTo(px,y) : ctx.lineTo(px,y);
+    }
+    ctx.stroke(); ctx.restore();
+    // pentes des asymptotes extrêmes
+    ctx.font = "12px system-ui,sans-serif"; ctx.fillStyle = css("--rust");
+    const pente = (lx0,lx1) => (A.g(Math.pow(10,lx1),state.Q) - A.g(Math.pow(10,lx0),state.Q))/(lx1-lx0);
+    const pL = pente(LX0, LX0+1), pR = pente(LX1-1, LX1);
+    const lab = p => (p>0?"+":"−") + Math.abs(Math.round(p)) + " dB/déc";
+    if (Math.abs(pL) > 5){
+      ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+      ctx.fillText(lab(pL), M.l+6, Math.max(Y(A.g(Math.pow(10,LX0+0.55),state.Q)) - 7, top+22));
+    }
+    if (Math.abs(pR) > 5){
+      ctx.textAlign = "right"; ctx.textBaseline = "top";
+      ctx.fillText(lab(pR), w-M.r-6, Math.min(Y(A.g(Math.pow(10,LX1-0.55),state.Q)) + 7, bot-16));
+    }
+  }
+
+  // réponse du filtre, tracée avec un liseré blanc pour rester lisible sur les raies
+  ctx.save(); ctx.beginPath(); ctx.rect(M.l,top,w-M.r-M.l,ph); ctx.clip();
+  const path = new Path2D();
+  let started = false;
+  for (let px = M.l; px <= w-M.r; px += 1){
+    const lx = LX0 + (LX1-LX0)*(px-M.l)/(w-M.l-M.r);
+    const g = 20*Math.log10(Math.max(cabs(H(Math.pow(10,lx))), 1e-300));
+    const y = Y(Math.max(Math.min(g,GMAX+5), GMIN-5));
+    started ? path.lineTo(px,y) : (path.moveTo(px,y), started=true);
+  }
+  ctx.strokeStyle = "#fff"; ctx.lineWidth = 5.5; ctx.stroke(path);
+  ctx.strokeStyle = css("--curve"); ctx.lineWidth = 2.4; ctx.stroke(path);
+  ctx.restore();
+  ctx.strokeStyle = "#9aa8b2"; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(M.l,bot+.5); ctx.lineTo(w-M.r,bot+.5); ctx.stroke();
+}
+
+function drawPhase(){
+  const cv = document.getElementById("cPhase");
+  const {ctx,w,h} = prep(cv);
+  const ph = h-M.t-M.b, top = M.t, bot = M.t+ph;
+  const Y = p => top + ph*(180-p)/360;
+  decades(ctx,w,h,top,bot);
+  ctx.strokeStyle = css("--grid"); ctx.fillStyle = css("--ink-soft");
+  ctx.textAlign = "right"; ctx.textBaseline = "middle"; ctx.font = "12px system-ui,sans-serif";
+  for (let p = 180; p >= -180; p -= 90){
+    const y = Math.round(Y(p))+.5;
+    ctx.beginPath(); ctx.moveTo(M.l,y); ctx.lineTo(w-M.r,y); ctx.stroke();
+    ctx.fillText(p+"°", M.l-8, y);
+  }
+  const sp = spectrum();
+  for (const c of sp.list){
+    if (c.x < Math.pow(10,LX0) || c.x > Math.pow(10,LX1)) continue;
+    if (c.Aout < 1e-9) continue;
+    const x = XX(w, Math.log10(c.x));
+    let p = ((c.phiOut*D + 180) % 360 + 360) % 360 - 180;
+    ctx.strokeStyle = css("--out"); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x, Y(0)); ctx.lineTo(x, Y(p)); ctx.stroke();
+    ctx.fillStyle = css("--out");
+    ctx.beginPath(); ctx.arc(x, Y(p), 3.2, 0, TAU); ctx.fill();
+  }
+  ctx.save(); ctx.beginPath(); ctx.rect(M.l,top,w-M.r-M.l,ph); ctx.clip();
+  if (state.bode){
+    const A = ASYM[state.fil];
+    ctx.setLineDash([7,5]); ctx.strokeStyle = css("--rust"); ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(M.l, Y(A.p(0.5, state.Q)));
+    ctx.lineTo(XX(w,0), Y(A.p(0.5, state.Q)));
+    ctx.lineTo(XX(w,0), Y(A.p(2, state.Q)));
+    ctx.lineTo(w-M.r, Y(A.p(2, state.Q)));
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+  const path = new Path2D();
+  let prev = null;
+  for (let px = M.l; px <= w-M.r; px += 1){
+    const lx = LX0 + (LX1-LX0)*(px-M.l)/(w-M.l-M.r);
+    const p = carg(H(Math.pow(10,lx)))*D;
+    if (prev === null || Math.abs(p-prev) > 150) path.moveTo(px, Y(p));
+    else path.lineTo(px, Y(p));
+    prev = p;
+  }
+  ctx.strokeStyle = "#fff"; ctx.lineWidth = 5; ctx.stroke(path);
+  ctx.strokeStyle = css("--curve"); ctx.lineWidth = 2.4; ctx.stroke(path);
+  ctx.restore();
+}
+
+/* ---------------- représentation temporelle ---------------- */
+function drawTime(){
+  const cv = document.getElementById("cTime");
+  const {ctx,w,h} = prep(cv);
+  const m = {l:46,r:14,t:14,b:30}, pw = w-m.l-m.r, ph = h-m.t-m.b;
+  const sp = spectrum(), reg = regime();
+  const NP = 900;
+  const yin = [], yout = [], yas = [];
+  const useAs = state.asym;
+  let K = 0, mm = 0;
+  if (useAs){
+    const c = categorie(state.r);
+    mm = (c.m === null) ? 0 : c.m;
+    K = cabs(H(state.r))/Math.pow(state.r, mm);
+  }
+  for (let i = 0; i <= NP; i++){
+    const u = 2*i/NP;
+    let a = sp.dcIn, b = sp.dcOut, c = sp.dcOut;
+    for (const k of sp.list){
+      a += k.Ain*Math.cos(TAU*k.n*u + k.phiIn);
+      b += k.Aout*Math.cos(TAU*k.n*u + k.phiOut);
+      if (useAs) c += k.Ain*K*Math.pow(k.x,mm)*Math.cos(TAU*k.n*u + k.phiIn + mm*PI/2);
+    }
+    yin.push(a); yout.push(b); yas.push(c);
+  }
+  // amplification éventuelle de l'ondulation de sortie
+  const acIn = Math.max(...yin.map(v=>Math.abs(v-sp.dcIn)), 1e-12);
+  const acOut = Math.max(...yout.map(v=>Math.abs(v-sp.dcOut)), 1e-15);
+  let k = 1;
+  if (state.amp && acOut > 0 && acIn/acOut > 1.5) k = Math.min(acIn/acOut, 1e5);
+  const zo = yout.map(v => sp.dcOut + k*(v-sp.dcOut));
+  const za = yas.map(v => sp.dcOut + k*(v-sp.dcOut));
+  document.getElementById("scaleNote").textContent =
+    k > 1.5 ? "ondulation de sortie amplifiée × " + (k<100 ? fmt(k,1) : Math.round(k)) : "échelle réelle, commune aux deux signaux";
+
+  const all = yin.concat(zo, useAs ? za : []);
+  let lo = Math.min(...all), hi = Math.max(...all);
+  const pad = 0.15*Math.max(hi-lo, 1e-9); lo -= pad; hi += pad;
+  const X = u => m.l + pw*u/2, Y = v => m.t + ph*(hi-v)/(hi-lo);
+
+  ctx.strokeStyle = css("--grid"); ctx.lineWidth = 1;
+  ctx.fillStyle = css("--ink-soft"); ctx.font = "12px system-ui,sans-serif";
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (const [u,lab] of [[0,"0"],[0.5,"T₁/2"],[1,"T₁"],[1.5,"3T₁/2"],[2,"2T₁"]]){
+    const x = Math.round(X(u))+.5;
+    ctx.beginPath(); ctx.moveTo(x,m.t); ctx.lineTo(x,m.t+ph); ctx.stroke();
+    ctx.fillText(lab, X(u), m.t+ph+6);
+  }
+  const step = Math.pow(10, Math.floor(Math.log10((hi-lo)/4)));
+  const st = ((hi-lo)/4/step > 5) ? 5*step : (((hi-lo)/4/step > 2) ? 2*step : step);
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (let v = Math.ceil(lo/st)*st; v <= hi; v += st){
+    const y = Math.round(Y(v))+.5;
+    ctx.beginPath(); ctx.moveTo(m.l,y); ctx.lineTo(m.l+pw,y); ctx.stroke();
+    ctx.fillText(fmt(v, st<0.1?2:(st<1?1:0)), m.l-8, Y(v));
+  }
+  if (lo < 0 && hi > 0){
+    ctx.strokeStyle = "#9aa8b2"; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(m.l, Math.round(Y(0))+.5); ctx.lineTo(m.l+pw, Math.round(Y(0))+.5); ctx.stroke();
+  }
+  const trace = (arr, col, wdt, dash) => {
+    ctx.save(); if (dash) ctx.setLineDash(dash);
+    ctx.strokeStyle = col; ctx.lineWidth = wdt; ctx.lineJoin = "round"; ctx.beginPath();
+    for (let i = 0; i <= NP; i++){ const x = X(2*i/NP), y = Y(arr[i]); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+    ctx.stroke(); ctx.restore();
+  };
+  trace(yin, css("--in"), 2);
+  if (useAs) trace(za, css("--rust"), 1.8, [6,4]);
+  trace(zo, css("--out"), 2.6);
+  document.getElementById("legAsym").hidden = !useAs;
+
+  // valeur moyenne de sortie
+  ctx.save(); ctx.setLineDash([2,4]); ctx.strokeStyle = css("--out"); ctx.globalAlpha = .5;
+  ctx.beginPath(); ctx.moveTo(m.l, Y(sp.dcOut)); ctx.lineTo(m.l+pw, Y(sp.dcOut)); ctx.stroke(); ctx.restore();
+}
+
+/* ---------------- textes et indicateurs ---------------- */
+function texts(){
+  const sp = spectrum(), reg = regime(), S = SIGNALS[state.sig];
+  const g1 = 20*Math.log10(Math.max(cabs(H(state.r)),1e-300));
+  const p1 = carg(H(state.r))*D;
+  document.getElementById("sRatio").textContent =
+    state.r >= 1 ? fmt(state.r,state.r<10?2:0) : "1/" + fmt(1/state.r, 1/state.r<10?2:0);
+  document.getElementById("sG").textContent = (g1 > -200 ? fmt(g1,1) : "−∞") + " dB";
+  document.getElementById("sPh").textContent = fmt(p1,0).replace("-","−") + "°";
+  document.getElementById("sDC").textContent = fmt(sp.dcIn,2) + " → " + fmt(sp.dcOut,2);
+
+  let txt;
+  if (reg.k === "int") txt = "Toutes les raies sont dans l'asymptote à −20 dB/décade avec −90° : la sortie est l'intégrale de l'entrée, le " + S.label + " devient un " + S.intName + ".";
+  else if (reg.k === "int2") txt = "Asymptote à −40 dB/décade et −180° : double intégration, la sortie est très lissée et inversée.";
+  else if (reg.k === "der") txt = "Toutes les raies sont dans l'asymptote à +20 dB/décade avec +90° : la sortie est la dérivée de l'entrée, le " + S.label + " donne " + (state.sig==="carre" ? "des impulsions alternées" : "un créneau") + ".";
+  else if (reg.k === "der2") txt = "Asymptote à +40 dB/décade et +180° : double dérivation, les ruptures de pente sont fortement accentuées.";
+  else if (reg.k === "plat") txt = "Gain constant et déphasage nul ou de 180° sur toute l'étendue du spectre : la forme d'onde est conservée" + (Math.abs(carg(H(state.r))*D) > 90 ? " au signe près." : ".");
+  else txt = "Les harmoniques ne subissent ni le même gain ni un déphasage proportionnel à la fréquence : la forme d'onde est déformée sans relever d'un modèle intégrateur ou dérivateur.";
+  const r = document.getElementById("regime");
+  r.style.borderLeftColor = reg.c;
+  r.querySelector("b").textContent = reg.nom;
+  r.querySelector("b").style.color = reg.c;
+  r.querySelector("span").textContent = txt + "  " + FILTERS[state.fil].expr + (FILTERS[state.fil].q ? ", Q = " + fmt(state.Q,2) : "") + ".";
+}
+
+function render(){
+  document.getElementById("oDC").textContent = fmt(state.dc,2);
+  document.getElementById("oQ").textContent = fmt(state.Q,2);
+  document.getElementById("fQ").hidden = !FILTERS[state.fil].q;
+  document.getElementById("oF").textContent =
+    state.r >= 1 ? "f₁ = " + fmt(state.r,state.r<10?2:0) + " f₀" : "f₁ = f₀ / " + fmt(1/state.r, 1/state.r<10?2:0);
+  drawGain(); drawPhase(); drawTime(); texts();
+}
+
+/* ---------------- interactions ---------------- */
+const rF = document.getElementById("rF");
+const setR = v => { state.r = Math.pow(10, -2 + 4*v/1000); rF.value = v; render(); };
+document.getElementById("segSig").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  state.sig = b.dataset.sig;
+  for (const x of e.currentTarget.children) x.setAttribute("aria-pressed", String(x===b));
+  render();
+});
+document.getElementById("segFil").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  state.fil = b.dataset.f;
+  for (const x of e.currentTarget.children) x.setAttribute("aria-pressed", String(x===b));
+  render();
+});
+document.getElementById("rDC").addEventListener("input", e=>{ state.dc = +e.target.value; render(); });
+document.getElementById("rQ").addEventListener("input", e=>{ state.Q = +e.target.value; render(); });
+rF.addEventListener("input", e=>{ stop(); setR(+e.target.value); });
+document.getElementById("segAmp").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  state.amp = (b.dataset.amp === "1");
+  for (const x of e.currentTarget.children) x.setAttribute("aria-pressed", String(x===b));
+  render();
+});
+document.getElementById("kBode").addEventListener("change", e=>{ state.bode = e.target.checked; render(); });
+document.getElementById("kAsym").addEventListener("change", e=>{ state.asym = e.target.checked; render(); });
+document.getElementById("kZones").addEventListener("change", e=>{ state.zones = e.target.checked; render(); });
+
+function stop(){ state.playing = false; if(state.raf) cancelAnimationFrame(state.raf); state.raf=null;
+  document.getElementById("bPlay").textContent = "Balayer f₁"; }
+document.getElementById("bPlay").addEventListener("click", ()=>{
+  if (state.playing){ stop(); return; }
+  state.playing = true;
+  document.getElementById("bPlay").textContent = "Arrêter";
+  const dur = 16000, v0 = +rF.value >= 995 ? 0 : +rF.value;
+  const t0 = performance.now() - dur*v0/1000;
+  const step = now => {
+    if (!state.playing) return;
+    const v = Math.min(1000, (now-t0)/dur*1000);
+    setR(v);
+    if (v >= 1000){ stop(); return; }
+    state.raf = requestAnimationFrame(step);
+  };
+  state.raf = requestAnimationFrame(step);
+});
+document.addEventListener("keydown", e=>{
+  if (/input|button|select/i.test(e.target.tagName)) return;
+  if (e.key === "ArrowRight"){ stop(); setR(Math.min(1000, +rF.value + 10)); e.preventDefault(); }
+  if (e.key === "ArrowLeft"){ stop(); setR(Math.max(0, +rF.value - 10)); e.preventDefault(); }
+  if (e.key === " "){ document.getElementById("bPlay").click(); e.preventDefault(); }
+});
+document.getElementById("bPng").addEventListener("click", ()=>{
+  const a = document.createElement("a");
+  a.download = "filtrage-" + state.sig + "-" + state.fil + ".png";
+  a.href = document.getElementById("cTime").toDataURL("image/png"); a.click();
+});
+
+/* infobulle sur le diagramme de gain */
+(function(){
+  const cv = document.getElementById("cGain"), tip = document.getElementById("tipG");
+  cv.addEventListener("mousemove", ev=>{
+    const rc = cv.getBoundingClientRect(), px = ev.clientX-rc.left, w = rc.width;
+    const sp = spectrum(); let best = null, bd = 1e9;
+    for (const c of sp.list){
+      const x = XX(w, Math.log10(c.x)), d = Math.abs(x-px);
+      if (d < bd){ bd = d; best = c; }
+    }
+    if (!best || bd > 14){ tip.classList.remove("on"); return; }
+    const gdb = 20*Math.log10(Math.max(best.g,1e-300));
+    tip.textContent = "rang " + best.n + " — f = " + (best.x>=1 ? fmt(best.x,2)+" f₀" : "f₀/"+fmt(1/best.x,2))
+      + " — entrée " + fmt(best.Ain,3) + " — gain " + fmt(gdb,1) + " dB — sortie " + best.Aout.toExponential(2).replace(".",",")
+      + " — Δφ " + fmt(best.hph*D,0) + "°";
+    tip.classList.add("on");
+    const tw = tip.offsetWidth;
+    tip.style.left = Math.max(2, Math.min(px-tw/2, w-tw-2)) + "px";
+    tip.style.top = Math.max(2, ev.clientY-rc.top-36) + "px";
+  });
+  cv.addEventListener("mouseleave", ()=>tip.classList.remove("on"));
+})();
+
+let rt = null;
+window.addEventListener("resize", ()=>{ clearTimeout(rt); rt = setTimeout(render, 120); });
+setR(500);
+</script>
+</body>
+</html>
